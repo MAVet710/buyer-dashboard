@@ -4,67 +4,85 @@ import {
   ArrowUpRight,
   Bot,
   Check,
-  FileCheck2,
+  CircleGauge,
   Fingerprint,
   Layers3,
   LockKeyhole,
+  PackageSearch,
   ShieldCheck,
+  Workflow,
 } from "lucide-react";
-import { APP_URL, INFO_EMAIL } from "../lib/brand";
+import { services } from "../lib/consultingServices";
 import { trackMarketingEvent } from "../lib/marketingAnalytics";
-import {
-  MarketingBrand,
-  MarketingNav,
-} from "../components/marketing/MarketingNav";
+import { MarketingNav } from "../components/marketing/MarketingNav";
+import { MarketingFooter } from "../components/marketing/MarketingPage";
 import { ProductShowcase } from "../components/marketing/ProductShowcase";
 import { Solutions } from "../components/marketing/Solutions";
 import { MarketingContactChannels } from "../components/ContactChannels";
 import { marketingFaqs } from "../components/marketing/content";
 
 const lifecycle = [
-  ["Cultivation", "Plant & room context"],
+  ["Cultivation", "Plant and room context"],
   ["Harvest", "Material handoff"],
-  ["Production", "Inputs & outputs"],
-  ["Packaging", "Finished goods"],
-  ["Wholesale", "Commercial handoff"],
-  ["Retail", "Stock & buying"],
+  ["Extraction", "Run stages and yield"],
+  ["Production", "Inputs, outputs and packaging"],
+  ["Commercial", "Inventory and buying context"],
+  ["Retail", "The next decision"],
 ];
+
 const controls = [
   {
     icon: Layers3,
-    title: "Facility context",
-    body: "Beta workspaces keep the facility and license in view as teams move between operations.",
+    title: "Facility and license context",
+    body: "Keep the operating boundary visible as teams move between the parts of the business they own.",
   },
   {
     icon: LockKeyhole,
-    title: "Role-based access",
-    body: "Access controls support different responsibilities. Validate your team’s permissions during onboarding.",
+    title: "People stay in control",
+    body: "DoobieLogic can surface context and guide a workflow. Regulated changes remain governed by your team.",
   },
   {
     icon: Fingerprint,
-    title: "Action records",
-    body: "Audit records capture context for supported workflows. Review the record coverage your operation needs.",
+    title: "Records worth reviewing",
+    body: "Supported workflows retain operational context so the next person is not reconstructing what happened from memory.",
   },
 ];
+
+const extractionProof = [
+  ["Source", "Released material + package context"],
+  ["Run", "Inputs, stages, outputs and losses"],
+  ["Review", "Yield, variance, QA and release context"],
+  ["Handoff", "Bulk output, packaging and downstream inventory"],
+];
+
+const agentQuestions = [
+  "What needs attention first?",
+  "What inventory is sitting too long?",
+  "What should purchasing look at next?",
+  "Which production runs need attention?",
+];
+
 const onboarding = [
   [
-    "Tell us about the operation.",
-    "Share your facilities, state, current systems and the work you want to improve.",
+    "Start with the friction.",
+    "Show us the handoff, count, run or buying decision your team is carrying today.",
   ],
   [
-    "Agree the testing scope.",
-    "Review beta fit, data needs, permissions and integration requirements with the team.",
+    "Map the operating context.",
+    "Review facilities, systems, permissions and the workflow that needs to connect.",
   ],
   [
-    "Validate with your people.",
-    "Approved partners receive onboarding access to test agreed workflows and give feedback.",
+    "See it with your team.",
+    "Approved beta partners evaluate the agreed workspace with the people who do the work.",
   ],
 ];
+
 function BetaLink({
   placement,
-  children = "Apply for beta",
+  children = "See the product",
 }: {
-  placement: "hero" | "product" | "trust" | "final";
+  placement:
+    "hero" | "product" | "trust" | "final" | "extraction" | "intelligence";
   children?: React.ReactNode;
 }) {
   return (
@@ -78,6 +96,61 @@ function BetaLink({
     </a>
   );
 }
+
+function ExtractionWorkflowProof() {
+  return (
+    <div
+      className="mh-extraction-proof"
+      aria-label="Extraction workflow context"
+    >
+      <div className="mh-extraction-proof-topline">
+        <span>
+          <i /> EXTRACTION RUN CONTEXT
+        </span>
+        <span>WORKFLOW VIEW</span>
+      </div>
+      <div
+        className="mh-extraction-metrics"
+        aria-label="Extraction run metrics"
+      >
+        <div>
+          <span>Reserved input</span>
+          <strong>Source-aware</strong>
+        </div>
+        <div>
+          <span>Stage yield</span>
+          <strong>Measured</strong>
+        </div>
+        <div>
+          <span>Variance</span>
+          <strong>Visible</strong>
+        </div>
+      </div>
+      <ol className="mh-extraction-flow">
+        {extractionProof.map(([label, detail], index) => (
+          <li key={label}>
+            <span>0{index + 1}</span>
+            <div>
+              <strong>{label}</strong>
+              <small>{detail}</small>
+            </div>
+            {index < extractionProof.length - 1 && (
+              <ArrowRight size={15} aria-hidden="true" />
+            )}
+          </li>
+        ))}
+      </ol>
+      <div className="mh-extraction-proof-foot">
+        <PackageSearch size={18} />
+        <span>
+          Keep source-to-output history close to the run, without pretending
+          every process follows the same path.
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export function MarketingHome() {
   return (
     <div className="marketing-page mh-page">
@@ -92,27 +165,28 @@ export function MarketingHome() {
           aria-labelledby="hero-heading"
         >
           <div className="mh-hero-topline">
-            <span className="mh-eyebrow">
-              Cannabis operations / ERP software
-            </span>
+            <span className="mh-eyebrow">Cannabis operations software</span>
             <span className="mh-beta-badge">
               <i /> BETA PARTNER PROGRAM
             </span>
           </div>
           <div className="mh-hero-layout">
-            <div className="mh-hero-copy">
+            <div className="mh-hero-copy mh-reveal">
               <h1 id="hero-heading">
-                Your operation.
+                Your team shouldn&apos;t
                 <br />
-                <span>One clear picture.</span>
+                be <span>the integration.</span>
               </h1>
               <p>
-                Cannabis ERP in beta for cultivation, production, retail and
-                vertically integrated teams. Bring the work into view, from the
-                grow room to the next buying decision.
+                DoobieLogic is cannabis operations software for teams who are
+                done stitching together cultivation, extraction, production,
+                inventory and buying with spreadsheets, whiteboards and tribal
+                knowledge.
               </p>
               <div className="mh-hero-actions">
-                <BetaLink placement="hero" />
+                <BetaLink placement="hero">
+                  See your operation in one picture
+                </BetaLink>
                 <a
                   className="mh-text-link"
                   href="#platform"
@@ -126,82 +200,72 @@ export function MarketingHome() {
                 </a>
               </div>
               <small>
-                For licensed operations. Access follows beta fit review.
+                Built for licensed operators. Beta access is scoped around the
+                workflows that matter to your team.
               </small>
             </div>
-            <div className="mh-hero-aside">
+            <div
+              className="mh-hero-aside mh-reveal mh-reveal-delay"
+              aria-label="Fragmented operations example"
+            >
               <span className="mh-aside-line" />
+              <span className="mh-label">THE DAILY HANDOFF</span>
               <p>
-                The inventory sheet.
-                <br />
-                The production whiteboard.
-                <br />
-                The “who has the latest?”
+                The count in one place. The run on another screen. The answer
+                living with the person who was there.
               </p>
               <strong>
-                There’s a better way
+                One shared picture.
                 <br />
-                to see the work.
+                Clearer next moves.
               </strong>
             </div>
           </div>
-          <div id="platform" className="mh-hero-product">
-            <ProductShowcase />
-            <div className="mh-product-foot">
-              <span>
-                <ShieldCheck size={16} /> Beta workflows. Real product
-                interfaces.
-              </span>
-              <a
-                href="/beta#apply"
-                className="mh-text-link"
-                onClick={() =>
-                  trackMarketingEvent("homepage_primary_cta", {
-                    placement: "product",
-                  })
-                }
-              >
-                Put your workflow in the picture <ArrowRight size={16} />
-              </a>
-            </div>
-          </div>
         </section>
+
         <section className="mh-proof-strip" aria-label="Operations served">
           <div className="mh-container">
             <span>
-              FOUR OPERATIONS.
+              FROM THE GROW ROOM
               <br />
-              <strong>ONE DIRECTION.</strong>
+              <strong>TO THE NEXT BUY.</strong>
             </span>
             <a href="#solution-cultivation">Cultivation</a>
-            <a href="#solution-production">Production / Manufacturing</a>
-            <a href="#solution-retail">Retail Operations</a>
-            <a href="#solution-vertical">Vertically Integrated</a>
+            <a href="#extraction">Extraction</a>
+            <a href="#solution-production">Production</a>
+            <a href="#solution-retail">Retail &amp; purchasing</a>
           </div>
         </section>
+
         <section
           className="mh-section mh-container mh-problem"
           aria-labelledby="problem-heading"
         >
           <div>
-            <span className="mh-eyebrow">01 / Less chasing. More context.</span>
+            <span className="mh-eyebrow">
+              01 / The system behind the system
+            </span>
             <h2 id="problem-heading">
               The work is connected.
               <br />
-              <span className="mh-muted">Your tools should be, too.</span>
+              <span className="mh-muted">Your records should be, too.</span>
             </h2>
             <p>
               When the count lives in one place and the production record in
-              another, your team becomes the integration.
+              another, your team becomes the integration. That is where the
+              handoffs, hunting and second-guessing start.
             </p>
           </div>
-          <div className="mh-fragmentation">
+          <div
+            className="mh-fragmentation"
+            aria-label="Fragmented systems becoming a shared operational view"
+          >
             <div className="mh-fragments">
               <span>POS export</span>
               <span>Inventory sheet</span>
               <span>Run notebook</span>
               <span>Label file</span>
-              <span>Email thread</span>
+              <span>Text thread</span>
             </div>
             <div className="mh-connection">
               <ArrowDown size={23} />
@@ -209,22 +273,118 @@ export function MarketingHome() {
             <div className="mh-unified">
               <Layers3 size={24} />
               <div>
-                <strong>A shared operational view</strong>
+                <strong>A shared operational picture</strong>
                 <p>
-                  The DoobieLogic beta brings workspaces together. Existing
-                  systems and each data connection still need their own
-                  validation.
+                  DoobieLogic brings the day&apos;s operational context into
+                  view while respecting the facilities, licenses and workflows
+                  behind it.
                 </p>
               </div>
             </div>
           </div>
         </section>
+
+        <section
+          className="mh-platform-proof mh-container"
+          id="platform"
+          aria-labelledby="platform-heading"
+        >
+          <div className="mh-platform-proof-copy">
+            <span className="mh-eyebrow">02 / Product proof</span>
+            <h2 id="platform-heading">
+              See the work before
+              <br />
+              you ask for the report.
+            </h2>
+            <p>
+              Real product surfaces for buying and inventory make the daily
+              picture easier to inspect: stock pressure, product records,
+              package context and the next purchasing decision.
+            </p>
+            <div className="mh-platform-proof-points">
+              <span>
+                <Check size={15} /> Purpose-built operational workspaces
+              </span>
+              <span>
+                <Check size={15} /> Synthetic demonstration data
+              </span>
+              <span>
+                <Check size={15} /> Facility-aware beta workflows
+              </span>
+            </div>
+          </div>
+          <div className="mh-platform-proof-product mh-reveal mh-reveal-delay">
+            <ProductShowcase />
+          </div>
+        </section>
+
+        <section
+          className="mh-extraction"
+          id="extraction"
+          aria-labelledby="extraction-heading"
+        >
+          <div className="mh-container mh-section mh-extraction-layout">
+            <div>
+              <span className="mh-eyebrow">
+                03 / Extraction is not a black box
+              </span>
+              <h2 id="extraction-heading">
+                Extraction without the
+                <br />
+                <span>spreadsheet archaeology.</span>
+              </h2>
+              <p>
+                Extraction is where source material, process knowledge, yield
+                and downstream inventory meet. DoobieLogic keeps the operational
+                story close: compatible source material, run stages, measured
+                inputs and outputs, loss and variance, QA/release context, and
+                source-to-output history.
+              </p>
+              <div className="mh-extraction-list">
+                <span>
+                  <Workflow size={17} /> Plan a run around compatible, released
+                  source material.
+                </span>
+                <span>
+                  <CircleGauge size={17} /> Compare input, output, yield and
+                  recorded loss as the run moves.
+                </span>
+                <span>
+                  <ShieldCheck size={17} /> Keep QA, COA, release and
+                  traceability context available for deeper review.
+                </span>
+              </div>
+              <div className="mh-extraction-actions">
+                <BetaLink placement="extraction">
+                  Walk us through an extraction run
+                </BetaLink>
+                <a
+                  className="mh-text-link"
+                  href="#solutions"
+                  onClick={() =>
+                    trackMarketingEvent("extraction_section_engagement", {
+                      placement: "extraction",
+                      item: "workflow-context",
+                    })
+                  }
+                >
+                  Explore every operation <ArrowRight size={17} />
+                </a>
+              </div>
+            </div>
+            <ExtractionWorkflowProof />
+          </div>
+        </section>
+
         <Solutions />
+
         <section className="mh-lifecycle" aria-labelledby="lifecycle-heading">
           <div className="mh-container mh-section">
             <div className="mh-section-top">
               <div>
-                <span className="mh-eyebrow">03 / The vertical view</span>
+                <span className="mh-eyebrow">
+                  05 / The whole operation has handoffs
+                </span>
                 <h2 id="lifecycle-heading">
                   The handoff is
                   <br />
@@ -232,8 +392,9 @@ export function MarketingHome() {
                 </h2>
               </div>
               <p>
-                Follow the journey you need to manage. Evaluate the records and
-                handoffs between teams, with facility context at every stage.
+                Material, context and responsibility all move. See the journey
+                your team needs to manage without flattening distinct facilities
+                and workflows into one generic process.
               </p>
             </div>
             <ol className="mh-flow">
@@ -248,15 +409,83 @@ export function MarketingHome() {
             </ol>
             <div className="mh-lifecycle-note">
               <span>
-                <i /> Connected lifecycle / beta evaluation
+                <i /> Shared context, real operating boundaries
               </span>
               <p>
-                A workflow map, not a promise of automatic cross-license
-                transfers. Validate each handoff for your operation.
+                Facility and license context stay visible as teams evaluate the
+                workflows that matter to their operation.
               </p>
             </div>
           </div>
         </section>
+
+        <section
+          className="mh-container mh-ai"
+          id="intelligence"
+          aria-labelledby="ai-heading"
+        >
+          <div>
+            <span className="mh-eyebrow">06 / Doobie Agent</span>
+            <h2 id="ai-heading">
+              Ask your operation
+              <br />
+              <span>what needs attention.</span>
+            </h2>
+            <p>
+              Doobie Agent is an intelligence layer over the operational context
+              available to your workspace. It is not a generic chatbot bolted
+              onto an ERP. Ask a practical question, understand the evidence,
+              then let your team make the call.
+            </p>
+            <div className="mh-ai-boundary">
+              <LockKeyhole size={17} />
+              <span>
+                Read-oriented AI tools surface context, explanations and
+                recommendations. Governed actions remain separate and
+                human-controlled.
+              </span>
+            </div>
+            <BetaLink placement="intelligence">
+              See Doobie Agent in context
+            </BetaLink>
+          </div>
+          <div className="mh-ai-example">
+            <div>
+              <Bot size={24} />
+              <span>DOOBIE AGENT</span>
+              <small>Operational questions</small>
+            </div>
+            <blockquote>
+              “What should
+              <br />I look at first?”
+            </blockquote>
+            <div className="mh-agent-questions">
+              {agentQuestions.map((question) => (
+                <button
+                  key={question}
+                  type="button"
+                  onClick={() =>
+                    trackMarketingEvent("doobie_agent_engagement", {
+                      placement: "intelligence",
+                      item:
+                        question === agentQuestions[0]
+                          ? "triage"
+                          : "operational-question",
+                    })
+                  }
+                >
+                  {question}
+                  <ArrowRight size={14} />
+                </button>
+              ))}
+            </div>
+            <span className="mh-ai-process">
+              ASK <ArrowRight size={14} /> UNDERSTAND <ArrowRight size={14} />{" "}
+              REVIEW
+            </span>
+          </div>
+        </section>
+
         <section
           className="mh-section mh-container"
           id="compliance"
@@ -265,7 +494,7 @@ export function MarketingHome() {
           <div className="mh-section-top">
             <div>
               <span className="mh-eyebrow">
-                04 / Context. Controls. Accountability.
+                07 / Context. Controls. Accountability.
               </span>
               <h2 id="trust-heading">
                 Keep the receipts.
@@ -274,9 +503,9 @@ export function MarketingHome() {
               </h2>
             </div>
             <p>
-              Regulated work deserves more than a green checkmark. Start with
-              facility context, clear responsibilities and records your team can
-              review.
+              Regulated work deserves more than a green checkmark. The strongest
+              operation is the one where the next person can understand the
+              context, the boundary and what happened.
             </p>
           </div>
           <div className="mh-control-grid">
@@ -288,124 +517,62 @@ export function MarketingHome() {
               </article>
             ))}
           </div>
-          <div className="mh-trust-note">
-            <FileCheck2 size={22} />
-            <p>
-              Compliance tools support review; they do not certify your
-              operation or replace your team’s regulatory responsibilities.
-              State and license fit are part of the beta evaluation.
-            </p>
-            <BetaLink placement="trust">Discuss your operation</BetaLink>
-          </div>
         </section>
+
         <section
-          className="mh-container mh-ai"
-          id="intelligence"
-          aria-labelledby="ai-heading"
-        >
-          <div>
-            <span className="mh-eyebrow">Doobie Agent / Beta</span>
-            <h2 id="ai-heading">
-              Intelligence with
-              <br />
-              an operation underneath.
-            </h2>
-            <p>
-              Ask questions about available operational data. Get explanations
-              and recommendations with context, then make the call with your
-              team.
-            </p>
-            <div className="mh-ai-boundary">
-              <LockKeyhole size={17} />
-              <span>
-                Read-only AI runtime tools. Separate controls for governed
-                actions.
-              </span>
-            </div>
-          </div>
-          <div className="mh-ai-example">
-            <div>
-              <Bot size={24} />
-              <span>DOOBIE AGENT</span>
-              <small>Illustrative question</small>
-            </div>
-            <blockquote>
-              “What should purchasing
-              <br />
-              look at first?”
-            </blockquote>
-            <p>
-              Explore inventory pressure and buying context in the beta. Answers
-              depend on the data and tools available to your workspace.
-            </p>
-            <span className="mh-ai-process">
-              ASK <ArrowRight size={14} /> UNDERSTAND <ArrowRight size={14} />{" "}
-              REVIEW
-            </span>
-          </div>
-        </section>
-        <section
-          className="mh-section mh-container"
+          className="mh-integrations-section"
           id="integrations"
           aria-labelledby="integrations-heading"
         >
-          <div className="mh-section-top">
-            <div>
-              <span className="mh-eyebrow">
-                05 / Your existing systems matter
-              </span>
-              <h2 id="integrations-heading">
-                Let’s talk about
-                <br />
-                what needs to connect.
-              </h2>
+          <div className="mh-container mh-section">
+            <div className="mh-section-top">
+              <div>
+                <span className="mh-eyebrow">
+                  08 / Build around the systems you have
+                </span>
+                <h2 id="integrations-heading">
+                  Bring the stack.
+                  <br />
+                  Start with the handoff.
+                </h2>
+              </div>
+              <p>
+                DoobieLogic is designed for a real operating environment, not a
+                clean demo. We begin with the systems, data and handoffs your
+                team needs to see more clearly.
+              </p>
             </div>
-            <p>
-              Bring your stack to the conversation. Readiness depends on
-              provider access, configuration and validation in your operation.
-            </p>
+            <div className="mh-integration-grid">
+              <article>
+                <span className="mh-label">TRACEABILITY</span>
+                <h3>Metrc-aware workflows</h3>
+                <p>
+                  Provider-connected workflows are evaluated by state, license
+                  and access. No certification or universal
+                  production-connection claim is implied.
+                </p>
+              </article>
+              <article>
+                <span className="mh-label">OPERATIONAL DATA</span>
+                <h3>Inventory, buying and production context</h3>
+                <p>
+                  Bring the sources your team relies on today. Data mapping and
+                  workflow fit are reviewed before a beta scope is agreed.
+                </p>
+              </article>
+              <article>
+                <span className="mh-label">YOUR OPERATION</span>
+                <h3>One useful starting point</h3>
+                <p>
+                  Start with the record, handoff or decision that creates the
+                  most friction. Expand only after the workflow earns your
+                  trust.
+                </p>
+              </article>
+            </div>
           </div>
-          <div className="mh-integration-grid">
-            <article>
-              <span className="mh-label">TRACEABILITY</span>
-              <h3>Metrc</h3>
-              <span className="mh-status">In validation</span>
-              <p>
-                Metrc-aware workflows are under evaluation. No certification or
-                production-ready connection is claimed.
-              </p>
-            </article>
-            <article>
-              <span className="mh-label">OPERATIONAL DATA</span>
-              <h3>Imports & exports</h3>
-              <span className="mh-status">Beta workflows</span>
-              <p>
-                Review your inventory and sales files with the team. Confirm
-                mappings and data quality before relying on them.
-              </p>
-            </article>
-            <article>
-              <span className="mh-label">YOUR STACK</span>
-              <h3>POS, accounting & more</h3>
-              <span className="mh-status neutral">Fit review required</span>
-              <p>
-                Tell us which connections are essential. A vendor name in your
-                stack is not a promise of a live integration.
-              </p>
-            </article>
-          </div>
-          <a
-            className="mh-text-link"
-            href="/beta#apply"
-            onClick={() =>
-              trackMarketingEvent("integration_view", {
-                placement: "integrations",
-              })
-            }
-          >
-            Bring your integration requirements <ArrowRight size={17} />
-          </a>
         </section>
+
         <section
           className="mh-adoption"
           id="workflow"
@@ -414,16 +581,19 @@ export function MarketingHome() {
           <div className="mh-section mh-container">
             <div className="mh-section-top">
               <div>
-                <span className="mh-eyebrow">06 / Start with the work</span>
+                <span className="mh-eyebrow">
+                  09 / A beta with a point of view
+                </span>
                 <h2 id="adoption-heading">
-                  A useful beta starts
+                  Start with the work
                   <br />
-                  with your actual operation.
+                  that is costing you time.
                 </h2>
               </div>
               <p>
-                No promised rollout clock. First, agree what needs to work:
-                data, team access, integrations and the workflows that matter.
+                This is a focused beta, not a promise that every workflow fits
+                every facility on day one. We define the useful starting point
+                together.
               </p>
             </div>
             <div className="mh-onboarding">
@@ -437,24 +607,25 @@ export function MarketingHome() {
             </div>
           </div>
         </section>
+
         <section
           className="mh-section mh-container mh-faq"
           id="resources"
           aria-labelledby="faq-heading"
         >
           <div>
-            <span className="mh-eyebrow">07 / Before you apply</span>
+            <span className="mh-eyebrow">10 / Before you apply</span>
             <h2 id="faq-heading">
               Fair questions.
               <br />
               Straight answers.
             </h2>
-            <p>Clear expectations make better partners.</p>
+            <p>Clear expectations make better operating partners.</p>
             <a className="mh-text-link" href="/beta#program">
               Read about the beta program <ArrowRight size={17} />
             </a>
             <a className="mh-text-link" href="/beta#data">
-              Participation & data use <ArrowRight size={17} />
+              Participation &amp; data use <ArrowRight size={17} />
             </a>
           </div>
           <div>
@@ -478,6 +649,51 @@ export function MarketingHome() {
             ))}
           </div>
         </section>
+
+        <section
+          className="mh-section mh-container"
+          id="consulting"
+          aria-labelledby="consulting-heading"
+        >
+          <div className="mh-section-top">
+            <div>
+              <span className="mh-eyebrow">Hands-on operational support</span>
+              <h2 id="consulting-heading">
+                Make the next
+                <br />
+                operating move clearer.
+              </h2>
+            </div>
+            <p>
+              Focused consulting for inventory, systems and the handoffs behind
+              your operation. Start with a conversation, then agree on a useful
+              scope.
+            </p>
+          </div>
+          <div className="mh-integration-grid">
+            {services.map((service) => (
+              <article key={service.slug}>
+                <h3>{service.title}</h3>
+                <p>{service.summary}</p>
+                <a
+                  className="mh-text-link"
+                  href={`/consulting/${service.slug}`}
+                  onClick={() =>
+                    trackMarketingEvent("service_internal_link_clicked", {
+                      placement: "product",
+                      item: service.slug,
+                    })
+                  }
+                >
+                  Explore service <ArrowRight size={17} aria-hidden="true" />
+                </a>
+              </article>
+            ))}
+          </div>
+          <a className="mh-text-link" href="/consulting">
+            Explore consulting <ArrowRight size={17} aria-hidden="true" />
+          </a>
+        </section>
         <MarketingContactChannels />
         <section
           className="mh-final mh-container"
@@ -491,58 +707,18 @@ export function MarketingHome() {
             <br />
             that needs to work better.
           </h2>
-          <p>Show us where the friction is. Help shape what comes next.</p>
-          <BetaLink placement="final">Apply for beta access</BetaLink>
+          <p>
+            Show us where your people are holding disconnected systems together.
+            We&apos;ll show you the operational picture we can build with them.
+          </p>
+          <BetaLink placement="final">See if DoobieLogic fits</BetaLink>
           <span className="mh-final-note">
-            <Check size={15} /> Applications reviewed for current beta fit
+            <Check size={15} /> Beta applications are reviewed around operation
+            and workflow fit
           </span>
         </section>
       </main>
-      <footer className="mh-footer mh-container">
-        <div className="mh-footer-main">
-          <div>
-            <MarketingBrand />
-            <p>Cannabis Operations Intelligence</p>
-            <a className="mh-text-link" href={`mailto:${INFO_EMAIL}`}>
-              {INFO_EMAIL}
-              <ArrowUpRight size={15} />
-            </a>
-          </div>
-          <div>
-            <h2>Platform</h2>
-            <a href="#platform">Product preview</a>
-            <a href="#solutions">Operations & solutions</a>
-            <a href="#intelligence">Doobie Agent</a>
-          </div>
-          <div>
-            <h2>Evaluate</h2>
-            <a href="#integrations">Integration readiness</a>
-            <a href="#compliance">Controls & compliance</a>
-            <a href="#workflow">Beta onboarding</a>
-          </div>
-          <div>
-            <h2>Get to know us</h2>
-            <a href="#resources">Questions & answers</a>
-            <a href="/beta#program">Beta Partner Program</a>
-            <a href="/beta#data">Participation & data use</a>
-            <a
-              href={APP_URL}
-              onClick={() =>
-                trackMarketingEvent("login_click", { placement: "footer" })
-              }
-            >
-              Operator login <ArrowUpRight size={13} />
-            </a>
-          </div>
-        </div>
-        <div className="mh-footer-bottom">
-          <span>© {new Date().getFullYear()} DoobieLogic</span>
-          <span>
-            Semper Paratus <i /> Powered by Good Weed and Data
-          </span>
-          <a href="#top">Back to top ↑</a>
-        </div>
-      </footer>
+      <MarketingFooter />
     </div>
   );
 }

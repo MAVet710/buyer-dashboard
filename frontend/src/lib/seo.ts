@@ -1,43 +1,56 @@
+import { advisoryRoutes } from "./advisorySeo";
 import { marketingFaqs } from "../components/marketing/content";
 
 export const MARKETING_ORIGIN = "https://doobielogic.io";
-export const MARKETING_TITLE = "DoobieLogic | Cannabis ERP & Operations Software";
-export const MARKETING_DESCRIPTION = "Cannabis ERP in beta for cultivation, production, retail, and vertically integrated teams. Explore the DoobieLogic operational workspaces and apply for beta access.";
+export const MARKETING_TITLE = advisoryRoutes["/"].title;
+export const MARKETING_DESCRIPTION = advisoryRoutes["/"].description;
 const PRIVATE_ROBOTS = "noindex, nofollow, noarchive, nosnippet";
 const PUBLIC_ROBOTS = "index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1";
 const SOCIAL_IMAGE = `${MARKETING_ORIGIN}/marketing/doobielogic-brand.png`;
+const normalizedPath = (pathname: string) => pathname === "/" ? "/" : pathname.replace(/\/$/, "");
 
 export function seoPage(marketing: boolean, pathname: string) {
-  const publicPage = marketing && !/^\/(?:portal|store)(?:\/|$)/i.test(pathname);
-  const beta = /^\/beta\/?$/.test(pathname);
+  const path = normalizedPath(pathname);
+  const metadata = Object.hasOwn(advisoryRoutes, path) ? advisoryRoutes[path] : undefined;
+  const publicPage = marketing && Boolean(metadata);
   return {
     publicPage,
-    title: publicPage ? (beta ? "Apply for the DoobieLogic Beta | Cannabis Operations Software" : MARKETING_TITLE) : "DoobieLogic Ops",
-    description: publicPage ? MARKETING_DESCRIPTION : "Private DoobieLogic operations workspace.",
-    canonical: publicPage ? `${MARKETING_ORIGIN}/${beta ? "beta" : ""}` : null,
+    title: publicPage ? metadata!.title : "DoobieLogic Ops",
+    description: publicPage ? metadata!.description : "Private DoobieLogic operations workspace.",
+    canonical: publicPage ? `${MARKETING_ORIGIN}${path}` : null,
     robots: publicPage ? PUBLIC_ROBOTS : PRIVATE_ROBOTS,
-    homepage: publicPage && !beta,
+    homepage: publicPage && path === "/",
+    kind: metadata?.kind,
   };
 }
 
-export function marketingStructuredData() {
-  return {
-    "@context": "https://schema.org",
-    "@graph": [
-      { "@type": "Organization", "@id": `${MARKETING_ORIGIN}/#organization`, name: "DoobieLogic", url: `${MARKETING_ORIGIN}/`, logo: SOCIAL_IMAGE },
-      {
-        "@type": "SoftwareApplication", "@id": `${MARKETING_ORIGIN}/#software`, name: "DoobieLogic",
-        url: `${MARKETING_ORIGIN}/`, applicationCategory: "BusinessApplication", operatingSystem: "Web",
-        description: MARKETING_DESCRIPTION, publisher: { "@id": `${MARKETING_ORIGIN}/#organization` },
-      },
-      {
-        "@type": "FAQPage", "@id": `${MARKETING_ORIGIN}/#faq`,
-        mainEntity: marketingFaqs.map(({ question, answer }) => ({
-          "@type": "Question", name: question, acceptedAnswer: { "@type": "Answer", text: answer },
-        })),
-      },
-    ],
-  };
+export function marketingStructuredData(pathname = "/") {
+  const page = seoPage(true, pathname);
+  const graph: Record<string, unknown>[] = [
+    { "@type": "Organization", "@id": `${MARKETING_ORIGIN}/#organization`, name: "DoobieLogic", url: `${MARKETING_ORIGIN}/`, logo: SOCIAL_IMAGE },
+  ];
+  if (page.homepage) {
+    graph.push({ "@type": "SoftwareApplication", "@id": `${MARKETING_ORIGIN}/#software`, name: "DoobieLogic", url: `${MARKETING_ORIGIN}/`, applicationCategory: "BusinessApplication", operatingSystem: "Web", description: MARKETING_DESCRIPTION, publisher: { "@id": `${MARKETING_ORIGIN}/#organization` } });
+    graph.push({ "@type": "FAQPage", "@id": `${MARKETING_ORIGIN}/#faq`, mainEntity: marketingFaqs.map(({ question, answer }) => ({ "@type": "Question", name: question, acceptedAnswer: { "@type": "Answer", text: answer } })) });
+    return { "@context": "https://schema.org", "@graph": graph };
+  }
+  if (page.publicPage) graph.push({
+    "@type": page.kind === "service" ? "Service" : page.kind === "article" ? "Article" : "WebPage",
+    "@id": `${page.canonical}#page`, url: page.canonical, name: page.title,
+    ...(page.kind === "article" ? { headline: page.title } : {}),
+    description: page.description,
+    ...(page.kind === "service" ? { provider: { "@id": `${MARKETING_ORIGIN}/#organization` } } : { publisher: { "@id": `${MARKETING_ORIGIN}/#organization` } }),
+  });
+  if (page.publicPage && pathname !== "/beta") {
+    const parts = normalizedPath(pathname).split("/").filter(Boolean);
+    graph.push({ "@type": "BreadcrumbList", itemListElement: [
+      { "@type": "ListItem", position: 1, name: "Home", item: `${MARKETING_ORIGIN}/` },
+      ...parts.map((part, i) => ({ "@type": "ListItem", position: i + 2,
+        name: i === parts.length - 1 ? page.title.split(" | ")[0] : part[0].toUpperCase() + part.slice(1),
+        item: `${MARKETING_ORIGIN}/${parts.slice(0, i + 1).join("/")}` })),
+    ] });
+  }
+  return { "@context": "https://schema.org", "@graph": graph };
 }
 
 function upsertMeta(name: string, content: string, attribute: "name" | "property" = "name"): void {
@@ -66,7 +79,7 @@ export function configureSeo(marketing: boolean): void {
   canonical.href = page.canonical;
   document.head.appendChild(canonical);
   for (const [name, content] of Object.entries({
-    "og:type": "website", "og:site_name": "DoobieLogic", "og:title": page.title,
+    "og:type": page.kind === "article" ? "article" : "website", "og:site_name": "DoobieLogic", "og:title": page.title,
     "og:description": page.description, "og:url": page.canonical, "og:image": SOCIAL_IMAGE,
     "og:image:type": "image/png", "og:image:width": "500", "og:image:height": "500", "og:image:alt": "DoobieLogic brand mark",
   })) upsertMeta(name, content, "property");
@@ -74,11 +87,11 @@ export function configureSeo(marketing: boolean): void {
     "twitter:card": "summary", "twitter:title": page.title,
     "twitter:description": page.description, "twitter:image": SOCIAL_IMAGE, "twitter:image:alt": "DoobieLogic brand mark",
   })) upsertMeta(name, content);
-  if (page.homepage) {
+  if (page.publicPage && normalizedPath(window.location.pathname) !== "/beta") {
     const script = document.createElement("script");
     script.id = "doobielogic-software-schema";
     script.type = "application/ld+json";
-    script.textContent = JSON.stringify(marketingStructuredData());
+    script.textContent = JSON.stringify(marketingStructuredData(window.location.pathname));
     document.head.appendChild(script);
   }
 }

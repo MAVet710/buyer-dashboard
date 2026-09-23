@@ -5,7 +5,7 @@ export const solutions = [
     short: "From room to harvest.",
     title: "Keep the growing operation in view.",
     description:
-      "Explore plant records, room context and growth phases without making the grow team think like a retail buyer.",
+      "Give the grow team room, plant, phase and harvest-handoff context without making them work inside a retail screen.",
     points: [
       "Plant and room context",
       "Growth phase tracking",
@@ -20,7 +20,7 @@ export const solutions = [
     short: "From bulk to finished goods.",
     title: "Know where the run stands.",
     description:
-      "Explore production and extraction workspaces with inputs, outputs, yields and packaging context close to the work.",
+      "Keep production inputs, outputs, yields, packaging and the downstream handoff close to the people running the work.",
     points: [
       "Production and extraction runs",
       "Materials, yields and costing",
@@ -35,7 +35,7 @@ export const solutions = [
     short: "From receiving to the next buy.",
     title: "Give the next buying decision some context.",
     description:
-      "Explore buying, receiving and inventory workspaces built around sellable stock and the decisions a store makes every day.",
+      "Put buying, receiving and inventory pressure beside the sellable stock decisions a retail team makes every day.",
     points: [
       "Purchasing and receiving",
       "Inventory counts and product records",
@@ -65,12 +65,17 @@ export const marketingFaqs = [
   {
     question: "What is DoobieLogic?",
     answer:
-      "DoobieLogic is cannabis operations and ERP software in beta. It brings buying, inventory, receiving, production, extraction and operational intelligence into a shared platform. Access and workflow scope are agreed with approved beta partners.",
+      "DoobieLogic is cannabis operations software in beta. It connects the operational context behind buying, inventory, cultivation, extraction, production and handoffs so your team is not left stitching together the story manually.",
   },
   {
     question: "Which operations is it built for?",
     answer:
-      "Cultivation, production and manufacturing, retail, and vertically integrated cannabis operations. Beta workspaces address plants and rooms, production runs and materials, or buying and sellable inventory according to the operation. We review fit for your workflows before onboarding.",
+      "Cultivation, extraction, production and manufacturing, retail, purchasing, and vertically integrated cannabis operations. The workspaces are organized around the operation, from plant and room context to source material, run history, package records and buying decisions.",
+  },
+  {
+    question: "How does DoobieLogic support extraction?",
+    answer:
+      "The extraction workspace supports compatible source-material selection, run planning, stage updates, measured inputs and outputs, yield and variance context, as well as deeper QA, release, COGS, traceability and source-to-output history. Specific workflow and integration fit are evaluated with beta partners.",
   },
   {
     question: "Can we evaluate multiple facilities?",
@@ -80,17 +85,17 @@ export const marketingFaqs = [
   {
     question: "Does DoobieLogic integrate with Metrc?",
     answer:
-      "Metrc integration is in validation. DoobieLogic includes Metrc-aware workflows, but this is not a claim of certification, production readiness or support in every state. State, license and provider access need to be confirmed for your beta scope.",
+      "Metrc-aware workflows are in validation. This is not a claim of certification, universal production readiness or support in every state; state, license and provider access are confirmed for the beta scope that is actually being evaluated.",
   },
   {
     question: "Will it replace our POS or accounting system?",
     answer:
-      "Do not assume a replacement or a live connection. Bring your current systems and required data flows to the beta review. Available imports and integrations must be validated for your operation before you rely on them.",
+      "Do not assume a replacement or a live connection. Bring the systems and data flows your team depends on to the beta review; available imports and integrations are validated for your operation before you rely on them.",
   },
   {
     question: "What does Doobie Agent do?",
     answer:
-      "Doobie Agent is a beta assistant for questions, explanations and recommendations using available operational context. AI runtime tools are read-only; governed actions use separate controls. Your team remains responsible for operational decisions and regulated work.",
+      "Doobie Agent is a beta intelligence layer for questions, explanations and recommendations grounded in available operational context. Its read-oriented tools help your team understand what is happening; governed actions stay under separate human controls.",
   },
   {
     question: "How do we get access, and what happens next?",

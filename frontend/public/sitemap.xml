@@ -1,13 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url>
-    <loc>https://doobielogic.io/</loc>
-    <changefreq>weekly</changefreq>
-    <priority>1.0</priority>
-  </url>
-  <url>
-    <loc>https://doobielogic.io/beta</loc>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
-  </url>
+  <url><loc>https://doobielogic.io/</loc></url>
+  <url><loc>https://doobielogic.io/consulting</loc></url>
+  <url><loc>https://doobielogic.io/consulting/inventory-profit-audit</loc></url>
+  <url><loc>https://doobielogic.io/consulting/fractional-purchasing</loc></url>
+  <url><loc>https://doobielogic.io/consulting/compliance-operational-audit</loc></url>
+  <url><loc>https://doobielogic.io/consulting/sop-workflow-development</loc></url>
+  <url><loc>https://doobielogic.io/consulting/metrc-technology</loc></url>
+  <url><loc>https://doobielogic.io/consulting/production-extraction</loc></url>
+  <url><loc>https://doobielogic.io/consulting/operational-diagnostic</loc></url>
+  <url><loc>https://doobielogic.io/resources</loc></url>
+  <url><loc>https://doobielogic.io/resources/days-on-hand-for-cannabis-inventory</loc></url>
+  <url><loc>https://doobielogic.io/resources/inventory-reconciliation-checklist</loc></url>
+  <url><loc>https://doobielogic.io/resources/metrc-api-readiness-checklist</loc></url>
+  <url><loc>https://doobielogic.io/beta</loc></url>
+  <url><loc>https://doobielogic.io/tools/operations-score</loc></url>
+  <url><loc>https://doobielogic.io/tools/inventory-health-check</loc></url>
 </urlset>

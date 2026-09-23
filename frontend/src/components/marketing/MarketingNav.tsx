@@ -46,12 +46,14 @@ export function MarketingNav() {
         >
           <div className="mh-nav-links">
             {[
-              ["Platform", "platform"],
-              ["Solutions", "solutions"],
-              ["Integrations", "integrations"],
-              ["Resources", "resources"],
+              ["Platform", "/#platform"],
+              ["Extraction", "/#extraction"],
+              ["Solutions", "/#solutions"],
+              ["Intelligence", "/#intelligence"],
+              ["Consulting", "/consulting"],
+              ["Resources", "/resources"],
             ].map(([label, id]) => (
-              <a href={`#${id}`} key={id} onClick={() => setOpen(false)}>
+              <a href={id} key={id} onClick={() => setOpen(false)}>
                 {label}
               </a>
             ))}
