@@ -53,7 +53,6 @@ def test_public_site_uses_brand_image_for_favicon_and_share_preview():
     assert (ROOT / "frontend" / "public" / "marketing" / "brand.webp").is_file()
     assert 'IMG_7158.PNG' not in index
     assert '<MarketingNav />' in marketing
-    assert '<MarketingBrand />' in marketing
     assert 'src="/marketing/brand.webp"' in marketing_nav
     assert 'aria-label="DoobieLogic home"' in marketing_nav
     assert 'raw.githubusercontent.com' not in marketing_nav

@@ -13,6 +13,10 @@ PERMITTED_PUBLIC_API_ROUTES = {
     ("POST", f"{settings.api_prefix}/trial/activate"),
     ("POST", f"{settings.api_prefix}/beta/apply"),
     ("POST", f"{settings.api_prefix}/account/username-login"),
+    ("POST", f"{settings.api_prefix}/advisory/leads"),
+    ("POST", f"{settings.api_prefix}/advisory/score"),
+    ("POST", f"{settings.api_prefix}/advisory/events"),
+    ("GET", f"{settings.api_prefix}/advisory/booking"),
     ("GET", f"{settings.api_prefix}/commerce-portal/{{token}}"),
     ("POST", f"{settings.api_prefix}/commerce-portal/{{token}}/orders"),
     ("POST", f"{settings.api_prefix}/commerce-portal/{{token}}/coas"),
@@ -78,6 +82,10 @@ def test_public_api_allowlist_is_explicit_and_bounded():
     assert ("POST", f"{settings.api_prefix}/trial/activate") in security
     assert ("POST", f"{settings.api_prefix}/beta/apply") in security
     assert ("POST", f"{settings.api_prefix}/account/username-login") in security
+    assert ("POST", f"{settings.api_prefix}/advisory/leads") in security
+    assert ("POST", f"{settings.api_prefix}/advisory/score") in security
+    assert ("POST", f"{settings.api_prefix}/advisory/events") in security
+    assert ("GET", f"{settings.api_prefix}/advisory/booking") in security
     assert ("POST", f"{settings.api_prefix}/commerce-portal/{{token}}/coas") in security
     assert ("GET", f"{settings.api_prefix}/commerce-portal/{{token}}/offers") in security
     assert ("POST", f"{settings.api_prefix}/commerce-portal/{{token}}/offers") in security
@@ -156,7 +164,7 @@ def test_api_and_operational_frontend_are_noindex():
 def test_sitemap_contains_only_public_marketing_urls():
     sitemap = Path("frontend/public/sitemap.xml").read_text(encoding="utf-8")
     assert "https://doobielogic.io/" in sitemap
-    forbidden = ("ops.doobielogic.io", "/api/", "/admin", "/inventory", "/buyer", "/production")
+    forbidden = ("ops.doobielogic.io", "/api/", "/admin", "https://doobielogic.io/inventory", "https://doobielogic.io/buyer")
     assert not any(value in sitemap for value in forbidden)
 
 

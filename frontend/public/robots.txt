@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /ops
+Disallow: /portal
+Disallow: /store
+Disallow: /api/
+Sitemap: https://doobielogic.io/sitemap.xml

@@ -287,12 +287,14 @@ def test_marketing_surfaces_current_product_pillars():
     home = Path("frontend/src/pages/HomePage.tsx").read_text(encoding="utf-8")
     for content in (marketing, beta, home):
         assert "Doobie Agent" in content
-        assert "Wholesale" in content
+    assert "Commercial" in marketing
+    assert "Wholesale" in beta
+    assert "Wholesale" in home
     assert "<Solutions />" in marketing
     assert "marketingFaqs" in marketing
     for operation in ("Cultivation", "Production / Manufacturing", "Retail Operations", "Vertically Integrated"):
         assert operation in marketing_content
-    assert "Metrc integration is in validation." in marketing_content
-    assert "AI runtime tools are read-only; governed actions use separate controls." in marketing_content
+    assert "Metrc-aware workflows are in validation." in marketing_content
+    assert "Its read-oriented tools help your team understand what is happening; governed actions stay under separate human controls." in marketing_content
     assert "Customer Portal" in beta
     assert "Customer Portal" in home
