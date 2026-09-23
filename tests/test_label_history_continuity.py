@@ -8,14 +8,16 @@ from sqlalchemy.pool import StaticPool
 
 from backend.app.services.label_run_history import list_label_run_history
 from modules.coman.models import Base, Facility, InventoryTransaction, Organization, Product
-# Register the canonical FK targets explicitly; isolated collection must not
-# depend on unrelated API tests importing the cultivation model graph first.
-from modules.cultivation import models as _cultivation_models  # noqa: F401
 from modules.label_studio_workflow import LabelProductionEvent, LabelProductionRun, LabelProductionWorkflowService
 
 
 @pytest.fixture
 def saved_labels():
+    # These are integrated persistence tests. Register the same full model graph
+    # as the API, including transfer/cultivation FK targets loaded by its guards.
+    # Importing the app does not enter its lifespan or connect to a runtime DB.
+    from backend.app.main import app as _registered_app  # noqa: F401
+
     engine = create_engine("sqlite+pysqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine)
     with Session(engine) as session, session.begin():
