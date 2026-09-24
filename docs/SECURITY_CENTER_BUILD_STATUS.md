@@ -1,56 +1,75 @@
-# DoobieLogic Security Center build status
+# Security Center: observer-stage implementation
 
-Date: September 24, 2026
-Status: PARTIAL_SCAFFOLD_NOT_ACTIVE
-Branch: feat/security-center-20260924
-Base: 7453221bae6e206da9281e45d0c417d903ff5573 (Extraction PR #582)
+Updated September 24, 2026. Status: OBSERVER_IMPLEMENTED_NOT_DEPLOYED.
+Branch: feat/security-center-20260924. Based on the unmerged Extraction repair
+7453221bae6e206da9281e45d0c417d903ff5573 (PR #582). This supersedes the earlier
+partial-scaffold status. The actual candidate commit and CI result belong in the
+release receipt; no deployment is implied by this document.
 
-## Observed work
-- Created an isolated PC checkout; the running release was not changed.
-- Added platform-only security event, incident and monitor-state model definitions.
-- Added HMAC pseudonym helpers so raw account identifiers/IPs need not be logged.
-- Added strict ingress-peer handling. A loopback proxy is not treated as an attacker.
-- Added event ID deduplication and fixed-window incident deduplication primitives.
-- Added committed-canonical-audit projection scaffolding without copying audit payloads.
-- Ran isolated SQLite scaffold tests: 13 passed, 0 failed, in 0.55 seconds.
+## Implemented
+- Alert-only rules for repeated username-login failures, multi-account attempts
+  from a trusted source, success after repeated failures, repeated verified-user
+  organization/facility denials, and sensitive canonical account-audit changes.
+- Observations connected to existing login and authorization outcomes. No new
+  blocking, permission bypass, automatic ban, credential change or provider write.
+- A bounded 1024-event memory queue, batches of 64, ten-second polling, retry of
+  unsaved batches, visible drop/failure counters, and degraded-monitor incidents.
+- Privacy: keyed account/source pseudonyms; no passwords, tokens, raw usernames,
+  raw addresses, query strings or request bodies in security observations.
+- Authenticated platform-DEV-only incident API, optimistic audited triage API,
+  and a read-only Security Center panel inside the existing Admin Tools page.
+- Additive migration 0079_security_observation, with PostgreSQL RLS enabled and
+  direct PUBLIC/anon/authenticated table privileges revoked. Runtime-role grants
+  require explicit review at deployment; the migration has not run in production.
+- Isolated signed-JWT tests and a PostgreSQL release gate. Browser component
+  tests use mocked API responses, not live authenticated customer traffic.
 
-## Important limits
-This is not a finished detector. The write operation that would complete detection
-was rejected twice by the execution service. The partial detect() function must
-NOT be connected to runtime or counted as implemented detection.
-No migration, request/auth instrumentation, worker, protected incident UI,
-notification sender, external watchdog or production activation was completed.
-The model definitions have NOT been applied to hosted Supabase.
-No email was sent. No alert recipient has been selected or verified.
-No current activity has been classified as an intrusion.
-No new automatic blocking, account changes, firewall rules or privileged access.
+## Verified local evidence
+86 selected backend tests passed, covering the new observer, existing security,
+username login, admin boundaries, identity/compatibility, migration revision
+contracts and Extraction query regressions. Three browser checks passed for
+DEV-only visibility, deferred loading and stale-status removal on failed refresh.
+Frontend lint/build/unit outcomes are recorded separately in release evidence.
+These results are not a full production acceptance or penetration-test report.
 
-The 13 checks validate ONLY scaffolding. They are not end-to-end, real-JWT,
-PostgreSQL, notification-delivery, penetration or PC-release acceptance.
+## Not implemented or not connected
+Email sending was not installed: its write operation was rejected by the execution
+service. No recipient was selected, no test email was sent, and pending incident
+metadata is NOT proof of a working notification queue. Both API status and UI
+explicitly report notification delivery as NOT CONNECTED.
+Direct Supabase Auth, Cloudflare, Windows Defender and off-PC availability/heartbeat
+collectors are NOT CONNECTED. Email-login traffic sent directly to Supabase is
+outside the current username-login observer's coverage.
 
-## Required continuation gates
-1. Complete bounded detection, queue/backpressure, visible monitoring health and
-   safe capture hooks without making logging an authorization dependency.
-2. Add reviewed migration and PostgreSQL RLS/revokes. Never expose global security
-   telemetry directly to browser database roles or customer administrators.
-3. Add platform-DEV-only incident review and audited triage. Anonymous requests
-   must never supply trusted actor/organization context from headers.
-4. Reuse the mail transport with minimal messages, a verified owner recipient,
-   delivery-state tracking and storm suppression. Acceptance is not delivery.
-5. Mark direct Supabase Auth, Cloudflare, Defender and external heartbeat coverage
-   NOT CONNECTED until their collectors and real delivery are verified.
-6. Test actual detector thresholds, benign activity, cross-tenant authorization,
-   redaction, queue/database failure, persistence, notifications and browser UX.
-7. Resolve prior PC startup/release blocker; validate integrated candidate before
-   migration/cutover and fresh authenticated public acceptance.
+## Limits and activation gates
+The observer is disabled by default. It also refuses capture without a separate
+security HMAC secret of at least 32 characters. No secret was generated or copied.
+Source correlation stays unavailable behind loopback ingress unless the verified
+proxy overwrite and narrowly scoped SECURITY_TRUSTED_PROXY_CIDRS are configured.
+The initial thresholds are engineering settings, not evidence of a confirmed attack:
+8 failed username logins, 20 failures across at least 5 account keys per source,
+or 10 scoped-access denials in five minutes. Fixed 15-minute incident buckets can
+produce adjacent-bucket alerts; committed privilege events deduplicate by audit ID.
 
-## Files and evidence
-Local checkout: C:\Users\ndasi\Documents\DoobieLogic\releases\pc-security-center-20260924
-Evidence: C:\Users\ndasi\Documents\DoobieLogic\review-evidence\security-center-scaffold-20260924
-The existing live release was b6845062 at the preflight; it must be rechecked.
+In-memory requests can be lost on a process crash before a successful batch commit.
+Canonical-account-audit polling currently covers the latest five minutes, bounded
+to 200 rows. Older outage history is NOT automatically backfilled. Saturation is
+reported as degraded, not complete coverage. This is not a tamper-proof external
+security ledger. Retention, persisted-storage quotas and long-outage recovery still
+require review before production activation. No automatic evidence deletion exists.
 
-## Design references (reviewed September 24, 2026)
-- https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html
-- https://supabase.com/docs/guides/auth/audit-logs
-- https://resend.com/changelog/idempotency-keys
-These guide subsequent implementation; they are not claims of connected coverage.
+Existing runtime readiness requires an exact Alembic revision. Applying 0079 needs
+a reviewed compatibility/rollback plan: simply restarting the old 0078 binary is
+not a verified rollback. Downgrade intentionally refuses destructive evidence loss.
+Complete notifications, externally verified outage alerts, retention/capacity,
+final candidate gates, startup-task alignment, migration/grants, configured secrets,
+and actual PC/public authenticated acceptance before declaring protection active.
+
+## Local locations
+Checkout: C:\Users\ndasi\Documents\DoobieLogic\releases\pc-security-center-20260924
+Evidence: C:\Users\ndasi\Documents\DoobieLogic\review-evidence\security-center-observer-20260924
+The running application was left unchanged at b6845062 during this iteration.
+
+## Engineering references
+- OWASP Logging Cheat Sheet: https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html
+- FastAPI lifespan: https://fastapi.tiangolo.com/advanced/events/

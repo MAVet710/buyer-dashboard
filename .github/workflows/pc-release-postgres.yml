@@ -54,6 +54,8 @@ jobs:
           python -m alembic upgrade head 2>&1 | tee artifacts/pc-postgres/migration.log
       - name: Extraction query-budget and connection-safety regressions
         run: python -m pytest -q tests/test_extraction_overview_performance.py --junitxml=artifacts/pc-postgres/extraction-query-regressions.xml
+      - name: Security observer privacy and authorization regressions
+        run: python -m pytest -q tests/test_security_center_scaffold.py tests/test_security_center_observer.py --junitxml=artifacts/pc-postgres/security-observer.xml
       - name: Exercise real JWT authorization and saved workflows
         run: |
           mkdir -p artifacts/pc-postgres

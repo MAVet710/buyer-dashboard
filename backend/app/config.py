@@ -5,6 +5,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    # Opt-in alert-only observation. No automatic account or firewall changes.
+    security_monitor_enabled: bool = False
+    security_hmac_secret: str = ""
+    security_trusted_proxy_cidrs: str = ""
+
     doobielogic_advisory_organization_id: str = ""
     doobielogic_advisory_booking_url: str = ""
     doobielogic_advisory_trusted_proxy_cidrs: str = ""

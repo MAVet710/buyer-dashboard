@@ -3,7 +3,7 @@ import hashlib
 import json
 from uuid import uuid4, uuid5, NAMESPACE_URL
 from datetime import datetime, timezone
-from sqlalchemy import select, func, delete
+from sqlalchemy import select
 from modules.coman.models import AuditEvent
 from .models import SecurityEvent, SecurityIncident, SecurityMonitorState
 from .privacy import pseudonym
@@ -39,7 +39,8 @@ def append_events(session, events):
 
 def open_incident(session, rule, key, count, now, evidence=None, severity="high"):
     # Rolling detection window; explicit fixed 15-minute alert deduplication bucket.
-    fingerprint = hashlib.sha256(f"{rule}:{key}:{int(now // COOLDOWN)}".encode()).hexdigest()
+    bucket = 0 if rule == "privileged_change" else int(now // COOLDOWN)
+    fingerprint = hashlib.sha256(f"{rule}:{key}:{bucket}".encode()).hexdigest()
     values = dict(id=str(uuid4()), fingerprint=fingerprint, rule=rule, severity=severity,
                   title=TITLES[rule], group_key=key, first_seen=now, last_seen=now,
                   occurrences=count, status="open", version=1, evidence_json=json.dumps(evidence or {}),
@@ -72,16 +73,15 @@ def collect_privileged_audits(session, secret, now):
 
 
 def detect(session, now):
-    E = SecurityEvent
-    recent = (E.occurred_at >= now - WINDOW, E.occurred_at <= now)
-    findings = []
-    failed = session.execute(select(E.subject_key, func.count(), func.max(E.occurred_at)).where(
-        *recent, E.kind == "login_failure", E.subject_key != "").group_by(E.subject_key)
-        .having(func.count() >= 8).order_by(func.count().desc()).limit(100)).all()
-    keys = [key for key, _, _ in failed]
-    successes = dict(session.execute(select(E.subject_key, func.max(E.occurred_at)).where(
-        *recent, E.kind == "login_success", E.subject_key.in_(keys)).group_by(E.subject_key)).all())
-    for key, count, last_failure in failed:
-        findings.append(("login_failures", key, count, "username_sign_in_denied"))
-        if successes.get(key, 0) > last_failure:
-            findings.append(("login_after_failures", key, count, "review_session_not_confirmed_compromise"))
+    from .rules import evaluate
+    findings, saturated = evaluate(session, now)
+    for rule, key, count, evidence in findings:
+        evidence["window_seconds"] = WINDOW
+        open_incident(session, rule, key, count, now, evidence)
+    return saturated
+
+
+def serialize_incident(row):
+    fields = ("id", "rule", "severity", "title", "first_seen", "last_seen", "occurrences",
+              "status", "version", "notification_status", "notification_reference", "notification_attempts")
+    return {**{field: getattr(row, field) for field in fields}, "evidence": json.loads(row.evidence_json)}

@@ -11,6 +11,7 @@ from modules.coman.models import AppUser, AppUserFacilityRole, Facility
 from services.trial_access import verify_trial_token
 
 from .config import Settings, get_settings
+from .security.runtime import observe
 from .database import get_engine as get_database_engine
 from modules.coman.db import ComanDatabaseConfigurationError
 
@@ -166,12 +167,14 @@ def get_request_context(
                 raise HTTPException(status_code=403, detail="This account is not active in Buyer Dash.")
             facility = session.get(Facility, facility_id)
             if not facility or not facility.active or facility.organization_id != organization_id:
+                observe(request, "scope_denial", user.id, user.id, user.organization_id)
                 raise HTTPException(status_code=403, detail="The selected facility is not available in this organization.")
             capabilities = _facility_capabilities(facility)
             if user.role == "dev":
                 role = "dev"
             else:
                 if user.organization_id != organization_id:
+                    observe(request, "scope_denial", user.id, user.id, user.organization_id)
                     raise HTTPException(status_code=403, detail="This account cannot access the selected organization.")
                 if user.role == "admin":
                     role = "admin"
@@ -184,6 +187,7 @@ def get_request_context(
                         )
                     )
                     if not assignment:
+                        observe(request, "scope_denial", user.id, user.id, user.organization_id)
                         raise HTTPException(status_code=403, detail="This account is not assigned to the selected facility.")
                     role = assignment.role
             if user.must_change_password and not _password_change_path_allowed(request.url.path, settings):

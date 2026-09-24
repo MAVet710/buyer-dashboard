@@ -131,14 +131,21 @@ if not settings.is_development and DECLARED_SCHEMA_HEAD and DECLARED_SCHEMA_HEAD
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
+async def lifespan(application: FastAPI):
     engine = get_engine()
     sync_sandbox_retail_sales(engine)
     try:
         ensure_rich_extraction_sandbox(engine)
     except Exception:
         logger.exception("DEV Sandbox extraction realism seed failed")
-    yield
+    from .security.runtime import SecurityMonitor
+    monitor = SecurityMonitor(engine, settings)
+    application.state.security_monitor = monitor
+    monitor.start()
+    try:
+        yield
+    finally:
+        await monitor.stop()
 
 
 app = FastAPI(
@@ -286,6 +293,8 @@ app.include_router(traceability_actions_router, prefix=settings.api_prefix)
 app.include_router(compliance_router, prefix=settings.api_prefix)
 app.include_router(compliance_qa_router, prefix=settings.api_prefix)
 app.include_router(account_router, prefix=settings.api_prefix)
+from .routers.security_center import router as security_center_router
+app.include_router(security_center_router, prefix=settings.api_prefix)
 app.include_router(data_hub_router, prefix=settings.api_prefix)
 app.include_router(location_settings_router, prefix=settings.api_prefix)
 app.include_router(home_router, prefix=settings.api_prefix)
