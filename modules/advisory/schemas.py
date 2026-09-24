@@ -6,7 +6,7 @@ from urllib.parse import urlsplit
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
 
-Service = Literal['inventory-profit-audit', 'fractional-purchasing', 'compliance-operational-audit', 'sop-workflow-development', 'metrc-technology', 'production-extraction', 'operational-diagnostic', 'not-sure']
+Service = Literal['inventory-profit-audit', 'fractional-purchasing', 'compliance-operational-audit', 'sop-workflow-development', 'metrc-technology', 'production-extraction', 'operational-diagnostic', 'beta-program', 'not-sure']
 LeadStatus = Literal['NEW', 'CONTACTED', 'QUALIFIED', 'CONSULTATION_BOOKED', 'PROPOSAL_SENT', 'CLIENT', 'CLOSED_LOST']
 SourceTool = Literal['operations-score', 'inventory-health-check']
 QUESTION_IDS = tuple(f'{group}-{index}' for group in ('inventory', 'purchasing', 'processes', 'people-production', 'technology') for index in range(1, 6))
