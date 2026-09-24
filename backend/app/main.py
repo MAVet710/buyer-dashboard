@@ -133,11 +133,13 @@ if not settings.is_development and DECLARED_SCHEMA_HEAD and DECLARED_SCHEMA_HEAD
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     engine = get_engine()
-    sync_sandbox_retail_sales(engine)
-    try:
-        ensure_rich_extraction_sandbox(engine)
-    except Exception:
-        logger.exception("DEV Sandbox extraction realism seed failed")
+    seed_default = "true" if settings.is_development else "false"
+    if os.getenv("SANDBOX_STARTUP_SEED_ENABLED", seed_default).casefold() in {"true", "1"}:
+        sync_sandbox_retail_sales(engine)
+        try:
+            ensure_rich_extraction_sandbox(engine)
+        except Exception:
+            logger.exception("DEV Sandbox extraction realism seed failed")
     from .security.runtime import SecurityMonitor
     monitor = SecurityMonitor(engine, settings)
     application.state.security_monitor = monitor

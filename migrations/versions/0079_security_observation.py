@@ -54,6 +54,17 @@ def upgrade():
             END $$;""")
 
 
+    if op.get_bind().dialect.name == "postgresql":
+        # Reuse the already deployed least-privilege runtime identity; no role or
+        # membership changes. Browser roles remain revoked above.
+        op.execute("""DO $$ BEGIN
+          IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='doobielogic_render_runtime') THEN
+            GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.security_events,
+              public.security_incidents, public.security_monitor_state TO doobielogic_render_runtime;
+          END IF;
+        END $$;""")
+
+
 def downgrade():
     """Only an unused migration is reversible; never discard recorded evidence."""
     connection = op.get_bind()

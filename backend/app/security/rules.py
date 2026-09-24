@@ -42,4 +42,21 @@ def evaluate(session, now):
     for key, audit_id, actor_id in privileged[:MAX_GROUPS]:
         findings.append(("privileged_change", key, 1, {"audit_id": audit_id, "actor_id": actor_id,
                                                      "outcome": "review_recorded_change"}))
+    # A single bounded evidence read, never one database request per finding.
+    keys = [key for _, key, _, _ in findings]
+    if keys:
+        samples = session.execute(select(E.subject_key, E.source_key, E.actor_id, E.route,
+            E.request_id, E.occurred_at).where(*recent,
+            (E.subject_key.in_(keys)) | (E.source_key.in_(keys)))
+            .order_by(E.occurred_at.desc()).limit(2000)).all()
+        by_subject, by_source = {}, {}
+        for subject, source, actor, route, request, timestamp in samples:
+            value = {"actor_id": actor, "route": route, "request_id": request, "occurred_at": timestamp}
+            for target, key in ((by_subject, subject), (by_source, source)):
+                bucket = target.setdefault(key, [])
+                if len(bucket) < 3:
+                    bucket.append(value)
+        for rule, key, _, evidence in findings:
+            evidence["correlation_reference"] = key
+            evidence["samples"] = (by_source if rule == "password_spray" else by_subject).get(key, [])
     return findings, saturated

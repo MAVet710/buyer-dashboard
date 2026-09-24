@@ -189,7 +189,8 @@ def test_database_failure_keeps_pending_observations(env,monkeypatch):
 
 
 def test_privileged_audit_projection_is_idempotent_and_private(env):
-    now=time.time()
+    # Use an exact microsecond boundary; datetime persistence rounds fractional floats.
+    now=float(int(time.time()))
     with Session(env.engine) as s,s.begin():
         s.add(AuditEvent(id="test-audit",organization_id="org-a",facility_id="fac-a",entity_type="app_user",
             entity_id="buyer",actor="dev",action="authorization_updated",changes_json='{"private":"do-not-copy"}',

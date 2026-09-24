@@ -8,6 +8,8 @@ from uuid import uuid4
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from .models import SecurityMonitorState
+from .notifications import SecurityNotifier
+from .retention import maintain, available_capacity
 from .privacy import pseudonym, source_identity
 from .store import append_events, collect_privileged_audits, detect, insert_for, open_incident
 
@@ -18,6 +20,7 @@ KINDS = frozenset(("login_failure", "login_success", "scope_denial"))
 class SecurityMonitor:
     def __init__(self, engine, settings, capacity=1024):
         self.engine, self.settings = engine, settings
+        self.notifier = SecurityNotifier(engine, settings)
         self.enabled = bool(settings.security_monitor_enabled)
         self.configured = len(settings.security_hmac_secret) >= 32
         self.queue = queue.Queue(maxsize=capacity)
@@ -27,6 +30,7 @@ class SecurityMonitor:
         self.task = None
         self.started_at = time.time()
         self.last_success = 0.0
+        self.last_maintenance = 0.0
         self.failures = 0
         self.dropped = 0
         self.last_warning = 0.0
@@ -70,7 +74,7 @@ class SecurityMonitor:
         return dict(state=state, last_success=self.last_success or None,
             queued=self.queue.qsize() + len(self.pending), dropped=self.dropped,
             failures=self.failures, saturated=self.saturated,
-            notifications="not_connected", response_mode="alert_only",
+            notifications=self.notifier.state, notification_detail=self.notifier.health(), response_mode="alert_only",
             coverage={"username_login": "instrumented", "scope_denials": "instrumented",
                       "privileged_changes": "canonical_audit_poll",
                       "supabase_direct_auth": "not_connected", "cloudflare": "not_connected",
@@ -91,8 +95,14 @@ class SecurityMonitor:
             with Session(self.engine) as session, session.begin():
                 if self.engine.dialect.name == "postgresql":
                     session.execute(text("SET LOCAL statement_timeout = '2500ms'"))
-                append_events(session, batch)
-                saturated = collect_privileged_audits(session, self.settings.security_hmac_secret, now)
+                if now - self.last_maintenance >= 60:
+                    maintain(session, now)
+                capacity = available_capacity(session, self.settings.security_event_capacity)
+                lost = max(0, len(batch) - capacity)
+                append_events(session, batch[:capacity])
+                saturated = lost > 0 or capacity <= len(batch) + 200
+                if capacity > len(batch) + 200:
+                    saturated = collect_privileged_audits(session, self.settings.security_hmac_secret, now) or saturated
                 saturated = detect(session, now) or saturated
                 if self.dropped > self.reported_dropped or self.failures > self.reported_failures or saturated:
                     open_incident(session, "monitoring_degraded", self.identifier, max(1, self.dropped + self.failures),
@@ -102,6 +112,8 @@ class SecurityMonitor:
                 session.execute(insert_for(session, SecurityMonitorState).values(**values)
                     .on_conflict_do_update(index_elements=["id"], set_={k:v for k,v in values.items() if k != "id"}))
             self.saturated = saturated
+            self.dropped += lost
+            self.last_maintenance = now if now - self.last_maintenance >= 60 else self.last_maintenance
             self.last_success = now
             self.last_tick_failed = False
             self.reported_dropped = self.dropped
@@ -117,6 +129,7 @@ class SecurityMonitor:
     async def run(self):
         while not self.stop_event.is_set():
             await asyncio.to_thread(self.tick)
+            await asyncio.to_thread(self.notifier.tick)
             try:
                 await asyncio.wait_for(self.stop_event.wait(), timeout=10)
             except TimeoutError:

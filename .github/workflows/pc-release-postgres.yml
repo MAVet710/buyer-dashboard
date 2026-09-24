@@ -59,7 +59,7 @@ jobs:
       - name: Extraction query-budget and connection-safety regressions
         run: python -m pytest -q tests/test_extraction_overview_performance.py --junitxml=artifacts/pc-postgres/extraction-query-regressions.xml
       - name: Security observer privacy and authorization regressions
-        run: python -m pytest -q tests/test_security_center_scaffold.py tests/test_security_center_observer.py --junitxml=artifacts/pc-postgres/security-observer.xml
+        run: python -m pytest -q tests/test_security_center_scaffold.py tests/test_security_center_observer.py tests/test_security_notifications.py --junitxml=artifacts/pc-postgres/security-observer.xml
       - name: Exercise real JWT authorization and saved workflows
         run: |
           mkdir -p artifacts/pc-postgres
