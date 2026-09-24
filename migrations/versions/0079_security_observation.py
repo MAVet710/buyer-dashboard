@@ -55,4 +55,21 @@ def upgrade():
 
 
 def downgrade():
-    raise RuntimeError("Security evidence is retained. A destructive rollback requires a separately reviewed retention/export plan.")
+    """Only an unused migration is reversible; never discard recorded evidence."""
+    connection = op.get_bind()
+    tables = ("security_events", "security_incidents", "security_monitor_state")
+    if connection.dialect.name == "postgresql":
+        # Hold locks through both the emptiness check and DDL to prevent a
+        # concurrent observer from committing records between check and drop.
+        connection.execute(sa.text("SET LOCAL lock_timeout = '5s'"))
+        connection.execute(sa.text("LOCK TABLE public.security_events, public.security_incidents, "
+                                   "public.security_monitor_state IN ACCESS EXCLUSIVE MODE"))
+    elif connection.dialect.name != "sqlite":
+        raise RuntimeError("Unsupported database for security evidence rollback.")
+    for name in tables:
+        table = sa.table(name, sa.column("id"))
+        if connection.execute(sa.select(table.c.id).limit(1)).first() is not None:
+            raise RuntimeError("Security records exist. Preserve/export evidence and review a separate rollback plan; no tables were dropped.")
+    # All three checks complete before any table is removed.
+    for name in reversed(tables):
+        op.drop_table(name)

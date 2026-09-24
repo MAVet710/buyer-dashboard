@@ -52,6 +52,10 @@ jobs:
           git rev-parse HEAD > artifacts/pc-postgres/tested-commit.txt
           set -o pipefail
           python -m alembic upgrade head 2>&1 | tee artifacts/pc-postgres/migration.log
+          # This workflow owns a disposable loopback PostgreSQL service only.
+          # Verify empty-table rollback before any acceptance fixture writes.
+          python -m alembic downgrade -1 2>&1 | tee artifacts/pc-postgres/empty-rollback.log
+          python -m alembic upgrade head 2>&1 | tee artifacts/pc-postgres/reupgrade.log
       - name: Extraction query-budget and connection-safety regressions
         run: python -m pytest -q tests/test_extraction_overview_performance.py --junitxml=artifacts/pc-postgres/extraction-query-regressions.xml
       - name: Security observer privacy and authorization regressions

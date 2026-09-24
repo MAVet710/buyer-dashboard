@@ -25,11 +25,15 @@ release receipt; no deployment is implied by this document.
   tests use mocked API responses, not live authenticated customer traffic.
 
 ## Verified local evidence
-86 selected backend tests passed, covering the new observer, existing security,
+98 selected backend tests passed, covering the new observer, safe empty/populated
+rollback handling, existing web infrastructure/security,
 username login, admin boundaries, identity/compatibility, migration revision
 contracts and Extraction query regressions. Three browser checks passed for
 DEV-only visibility, deferred loading and stale-status removal on failed refresh.
-Frontend lint/build/unit outcomes are recorded separately in release evidence.
+Frontend lint and production build passed. All 107 frontend unit tests passed
+across 21 test files. These backend suites overlap earlier 54/86 runs; do not add
+them as separate unique tests. The first CI failure was the empty rollback
+contract, now reproduced, repaired, and covered without weakening the test.
 These results are not a full production acceptance or penetration-test report.
 
 ## Not implemented or not connected
@@ -60,7 +64,9 @@ require review before production activation. No automatic evidence deletion exis
 
 Existing runtime readiness requires an exact Alembic revision. Applying 0079 needs
 a reviewed compatibility/rollback plan: simply restarting the old 0078 binary is
-not a verified rollback. Downgrade intentionally refuses destructive evidence loss.
+not a verified rollback. An unused migration can roll back after all three security tables are confirmed empty.
+Populated tables refuse rollback; PostgreSQL holds exclusive locks throughout the
+check and removal to avoid an observation being written between those operations.
 Complete notifications, externally verified outage alerts, retention/capacity,
 final candidate gates, startup-task alignment, migration/grants, configured secrets,
 and actual PC/public authenticated acceptance before declaring protection active.
