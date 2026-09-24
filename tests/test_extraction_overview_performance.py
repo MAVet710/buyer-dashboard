@@ -106,8 +106,8 @@ def test_overview_query_budget_does_not_grow_per_run(case, record_property):
         record_property('sql_statements_one_run', one_run)
         record_property('sql_statements_31_runs', len(queries))
         assert len(result['runs']) == 31
-        assert len(queries) <= 15, f'{len(queries)} SQL statements for 31 runs'
-        assert len(queries) <= one_run + 1
+        assert one_run == 1, f'{one_run} SQL statements for one run'
+        assert len(queries) == 1, f'{len(queries)} SQL statements for 31 runs'
         assert not any(q.lstrip().upper().startswith(('INSERT', 'UPDATE', 'DELETE', 'ALTER', 'CREATE')) for q in queries)
         assert case.pool.checkedout() == 0
     finally:
