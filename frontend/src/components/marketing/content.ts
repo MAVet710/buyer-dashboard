@@ -85,7 +85,7 @@ export const marketingFaqs = [
   {
     question: "Does DoobieLogic integrate with Metrc?",
     answer:
-      "Metrc-aware workflows are in validation. This is not a claim of certification, universal production readiness or support in every state; state, license and provider access are confirmed for the beta scope that is actually being evaluated.",
+      "Yes. DoobieLogic has completed Metrc integration verification and includes Metrc-integrated workflows. Production use still depends on the operator’s state, license, facility permissions, credentials and supported workflow scope; verification does not mean every Metrc workflow is available in every jurisdiction.",
   },
   {
     question: "Will it replace our POS or accounting system?",

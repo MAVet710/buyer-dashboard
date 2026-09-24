@@ -9,6 +9,8 @@ describe("public marketing SEO and private boundaries", () => {
     expect(seoPage(true, "/")).toMatchObject({ publicPage: true, canonical: "https://doobielogic.io/", title: MARKETING_TITLE });
     expect(seoPage(true, "/").robots).not.toContain("noindex");
     expect(MARKETING_DESCRIPTION).toContain("in beta");
+    expect(MARKETING_TITLE).toContain("Veteran-Built");
+    expect(MARKETING_DESCRIPTION).toContain("Metrc-integrated");
   });
   it("gives beta its own canonical and excludes homepage FAQ markup", () => {
     expect(seoPage(true, "/beta/")).toMatchObject({ canonical: "https://doobielogic.io/beta", homepage: false });

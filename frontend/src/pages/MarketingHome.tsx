@@ -178,10 +178,10 @@ export function MarketingHome() {
                 be <span>the integration.</span>
               </h1>
               <p>
-                DoobieLogic is cannabis operations software for teams who are
-                done stitching together cultivation, extraction, production,
-                inventory and buying with spreadsheets, whiteboards and tribal
-                knowledge.
+                DoobieLogic is veteran-built cannabis ERP and operations
+                software for teams who are done stitching together cultivation,
+                extraction, production, inventory and buying with spreadsheets,
+                whiteboards and tribal knowledge.
               </p>
               <div className="mh-hero-actions">
                 <BetaLink placement="hero">
@@ -297,19 +297,19 @@ export function MarketingHome() {
               you ask for the report.
             </h2>
             <p>
-              Real product surfaces for buying and inventory make the daily
-              picture easier to inspect: stock pressure, product records,
-              package context and the next purchasing decision.
+              These are working DoobieLogic product surfaces, not a concept
+              mockup. Synthetic demonstration data keeps private operator data
+              out while the buying, inventory and workflow experience stays real.
             </p>
             <div className="mh-platform-proof-points">
               <span>
-                <Check size={15} /> Purpose-built operational workspaces
+                <Check size={15} /> Real DoobieLogic product surfaces
               </span>
               <span>
                 <Check size={15} /> Synthetic demonstration data
               </span>
               <span>
-                <Check size={15} /> Facility-aware beta workflows
+                <Check size={15} /> Verified Metrc integration
               </span>
             </div>
           </div>
@@ -520,6 +520,56 @@ export function MarketingHome() {
         </section>
 
         <section
+          className="mh-section mh-container"
+          id="why-doobielogic"
+          aria-labelledby="why-doobielogic-heading"
+        >
+          <div className="mh-section-top">
+            <div>
+              <span className="mh-eyebrow">Why DoobieLogic</span>
+              <h2 id="why-doobielogic-heading">
+                Built around the operation.
+                <br />
+                Not a generic ERP template.
+              </h2>
+            </div>
+            <p>
+              Different teams need different workspaces. DoobieLogic connects
+              the context between them without pretending cultivation,
+              extraction, production and purchasing are the same job.
+            </p>
+          </div>
+          <div className="mh-integration-grid">
+            <article>
+              <span className="mh-label">EXTRACTION</span>
+              <h3>Extraction is a first-class workflow</h3>
+              <p>
+                Run stages, measured inputs and outputs, yield, loss, QA and
+                source-to-output history stay close to the people doing the work.
+              </p>
+            </article>
+            <article>
+              <span className="mh-label">HANDOFFS</span>
+              <h3>Context moves with the operation</h3>
+              <p>
+                Cultivation, production, inventory and purchasing can keep their
+                own operating views while sharing the records behind the next
+                decision.
+              </p>
+            </article>
+            <article>
+              <span className="mh-label">INTELLIGENCE</span>
+              <h3>AI starts with operational context</h3>
+              <p>
+                Doobie Agent works from the context available to the workspace.
+                Recommendations stay reviewable and governed actions remain
+                human-controlled.
+              </p>
+            </article>
+          </div>
+        </section>
+
+        <section
           className="mh-integrations-section"
           id="integrations"
           aria-labelledby="integrations-heading"
@@ -545,11 +595,11 @@ export function MarketingHome() {
             <div className="mh-integration-grid">
               <article>
                 <span className="mh-label">TRACEABILITY</span>
-                <h3>Metrc-aware workflows</h3>
+                <h3>Verified Metrc integration</h3>
                 <p>
-                  Provider-connected workflows are evaluated by state, license
-                  and access. No certification or universal
-                  production-connection claim is implied.
+                  DoobieLogic has completed Metrc integration verification.
+                  Connection scope still depends on state, license, facility
+                  permissions, credentials and the supported workflow.
                 </p>
               </article>
               <article>
@@ -570,6 +620,55 @@ export function MarketingHome() {
                 </p>
               </article>
             </div>
+          </div>
+        </section>
+
+        <section
+          className="mh-section mh-container"
+          id="operator-built"
+          aria-labelledby="operator-built-heading"
+        >
+          <div className="mh-section-top">
+            <div>
+              <span className="mh-eyebrow">Veteran-built / operator-informed</span>
+              <h2 id="operator-built-heading">
+                Built by someone who has
+                <br />
+                actually worked the operation.
+              </h2>
+            </div>
+            <p>
+              DoobieLogic is veteran-built by a U.S. Army veteran with hands-on
+              cannabis purchasing, inventory, production and retail operations
+              experience. The product starts with the friction operators
+              actually carry, then builds the software around it.
+            </p>
+          </div>
+          <div className="mh-control-grid">
+            <article>
+              <ShieldCheck size={25} />
+              <h3>Veteran-built discipline</h3>
+              <p>
+                Clear ownership, reviewable evidence and reliable handoffs matter
+                more than feature-count theater.
+              </p>
+            </article>
+            <article>
+              <PackageSearch size={25} />
+              <h3>Operator-side experience</h3>
+              <p>
+                Purchasing, inventory, production and retail decisions informed
+                the workflows instead of being added after the fact.
+              </p>
+            </article>
+            <article>
+              <Workflow size={25} />
+              <h3>Fix the workflow before automating it</h3>
+              <p>
+                Consulting and software live together so a broken process does
+                not become a faster broken process.
+              </p>
+            </article>
           </div>
         </section>
 
@@ -652,22 +751,69 @@ export function MarketingHome() {
 
         <section
           className="mh-section mh-container"
+          id="cost-of-disconnected-ops"
+          aria-labelledby="cost-heading"
+        >
+          <div className="mh-section-top">
+            <div>
+              <span className="mh-eyebrow">The cost of disconnected operations</span>
+              <h2 id="cost-heading">
+                The gap shows up
+                <br />
+                before it hits the P&amp;L.
+              </h2>
+            </div>
+            <p>
+              No invented ROI percentages. Just the recurring work operators
+              recognize when systems, records and handoffs do not line up.
+            </p>
+          </div>
+          <div className="mh-integration-grid">
+            <article>
+              <h3>Reconciliation time</h3>
+              <p>
+                People spend hours comparing exports, counts and production
+                records before they can answer a basic operational question.
+              </p>
+            </article>
+            <article>
+              <h3>Buying without enough context</h3>
+              <p>
+                Stock pressure, aging inventory and the next purchase decision
+                live in different places, so the buyer becomes the integration.
+              </p>
+            </article>
+            <article>
+              <h3>Production history rebuilt later</h3>
+              <p>
+                Yield, loss, QA and process knowledge become spreadsheet
+                archaeology when the run record is not connected end to end.
+              </p>
+            </article>
+          </div>
+          <a className="mh-text-link" href="#consulting">
+            Start with the operating problem <ArrowRight size={17} aria-hidden="true" />
+          </a>
+        </section>
+
+        <section
+          className="mh-section mh-container"
           id="consulting"
           aria-labelledby="consulting-heading"
         >
           <div className="mh-section-top">
             <div>
-              <span className="mh-eyebrow">Hands-on operational support</span>
+              <span className="mh-eyebrow">Not ready for new software?</span>
               <h2 id="consulting-heading">
-                Make the next
+                Start with
                 <br />
-                operating move clearer.
+                the operation.
               </h2>
             </div>
             <p>
-              Focused consulting for inventory, systems and the handoffs behind
-              your operation. Start with a conversation, then agree on a useful
-              scope.
+              You do not need to become a software customer to work with us.
+              Start with inventory, purchasing, systems, SOPs, Metrc workflows,
+              production or extraction, then agree on a useful scope.
             </p>
           </div>
           <div className="mh-integration-grid">
@@ -690,9 +836,14 @@ export function MarketingHome() {
               </article>
             ))}
           </div>
-          <a className="mh-text-link" href="/consulting">
-            Explore consulting <ArrowRight size={17} aria-hidden="true" />
-          </a>
+          <div className="mh-hero-actions">
+            <a className="mh-button" href="/consulting#consultation">
+              Book a free 20-minute consultation <ArrowUpRight size={17} />
+            </a>
+            <a className="mh-text-link" href="/consulting">
+              Explore consulting <ArrowRight size={17} aria-hidden="true" />
+            </a>
+          </div>
         </section>
         <MarketingContactChannels />
         <section
