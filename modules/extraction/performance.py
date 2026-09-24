@@ -13,7 +13,7 @@ from statistics import median
 from typing import Any, Iterable
 
 from sqlalchemy import Engine, func, inspect, select
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from modules.coman.models import AuditEvent, Product
 from modules.product_master.models import ProductValueEvent
@@ -143,10 +143,16 @@ class ExtractionPerformanceService:
         self.engine = engine
         self._session_factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
 
-    def resource_table_ready(self) -> bool:
+    def resource_table_ready(self, session: Session | None = None) -> bool:
         try:
-            return inspect(self.engine).has_table("extraction_resource_events")
+            # Reuse the caller's connection: acquiring a second connection while
+            # a metrics session is active can exhaust a deliberately small pool.
+            bind = session.connection() if session is not None else self.engine
+            return inspect(bind).has_table("extraction_resource_events")
         except Exception:
+            if session is not None:
+                # A DB failure must not be presented as zero resource cost.
+                raise
             return False
 
     def record_resource_usage(
@@ -295,7 +301,7 @@ class ExtractionPerformanceService:
                 or 0.0
             )
             resource_events: list[ExtractionResourceEvent] = []
-            if self.resource_table_ready():
+            if self.resource_table_ready(session):
                 resource_events = list(
                     session.scalars(
                         select(ExtractionResourceEvent).where(ExtractionResourceEvent.run_id == run.id)

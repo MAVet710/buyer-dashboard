@@ -4,6 +4,7 @@ on:
     paths:
       - 'backend/**'
       - 'modules/**'
+      - 'tests/test_extraction_overview_performance.py'
       - 'migrations/**'
       - 'scripts/acceptance/pc_release_postgres_acceptance.py'
       - '.github/workflows/pc-release-postgres.yml'
@@ -51,6 +52,8 @@ jobs:
           git rev-parse HEAD > artifacts/pc-postgres/tested-commit.txt
           set -o pipefail
           python -m alembic upgrade head 2>&1 | tee artifacts/pc-postgres/migration.log
+      - name: Extraction query-budget and connection-safety regressions
+        run: python -m pytest -q tests/test_extraction_overview_performance.py --junitxml=artifacts/pc-postgres/extraction-query-regressions.xml
       - name: Exercise real JWT authorization and saved workflows
         run: |
           mkdir -p artifacts/pc-postgres
