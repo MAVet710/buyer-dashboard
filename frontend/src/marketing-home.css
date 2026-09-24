@@ -1369,12 +1369,15 @@
 }
 .mh-product-switch {
   display: flex;
+  align-items: stretch;
   gap: 6px;
   padding: 10px 18px;
   border-bottom: 1px solid #35302b;
 }
 .mh-product-switch button {
   display: inline-flex;
+  flex: 1 1 0;
+  min-width: 0;
   align-items: center;
   justify-content: center;
   gap: 9px;
@@ -1386,7 +1389,7 @@
   font-size: 12px;
   border-radius: 4px;
 }
-.mh-product-switch button[aria-pressed="true"] {
+.mh-product-switch button[aria-selected="true"] {
   border-color: #705038;
   background: #30231a;
   color: #ffb67d;
@@ -1401,6 +1404,13 @@
   display: block;
   width: 100%;
   height: auto;
+}
+.mh-product-video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1440 / 1000;
+  object-fit: cover;
+  background: #0a0d0e;
 }
 .mh-product-showcase figcaption {
   display: flex;

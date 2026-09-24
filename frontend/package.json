@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build && node scripts/public-seo.mjs",
     "lint": "eslint .",
-    "test": "vitest run --exclude 'e2e/**'"
+    "test": "vitest run --exclude 'e2e/**'",
+    "capture:marketing:extraction": "node scripts/capture-marketing-extraction.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.56.1",
