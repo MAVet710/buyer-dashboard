@@ -1,4 +1,4 @@
-const CACHE_VERSION = "doobielogic-shell-v1";
+const CACHE_VERSION = "doobielogic-shell-v2";
 const APP_SHELL = ["/", "/manifest.webmanifest", "/doobielogic-logo.webp"];
 
 self.addEventListener("install", event => {
