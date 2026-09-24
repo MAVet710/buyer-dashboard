@@ -36,7 +36,7 @@ def test_public_hero_copy_is_clear_and_avoids_overwritten_phrasing():
     marketing = (ROOT / "frontend" / "src" / "pages" / "MarketingHome.tsx").read_text(encoding="utf-8")
 
     copy = " ".join(marketing.split())
-    assert "DoobieLogic is cannabis operations software for teams who are done stitching together cultivation, extraction, production, inventory and buying" in copy
+    assert "DoobieLogic is veteran-built cannabis ERP and operations software for teams who are done stitching together cultivation, extraction, production, inventory and buying" in copy
     assert "Built for licensed operators. Beta access is scoped around the workflows that matter to your team." in copy
     assert "Approved beta partners evaluate the agreed workspace" in copy
     assert 'href="/beta#apply"' in marketing
