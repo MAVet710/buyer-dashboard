@@ -12,5 +12,7 @@
 .auth-intro .brand > span,
 .auth-card .brand > span,
 .sidebar .brand > span {
+  background: url("/doobielogic-logo.webp") center / cover no-repeat !important;
+  color: transparent !important;
   border: 1px solid rgba(255, 255, 255, .08);
 }
