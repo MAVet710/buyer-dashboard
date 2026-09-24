@@ -23,7 +23,7 @@ test("DEV review loads on demand and explains disconnected alerts", async ({ pag
   await expect(summary).toBeVisible(); expect(state.observed).toEqual([]);
   await summary.click();
   await expect(page.getByText("Repeated denied access", { exact: true })).toBeVisible();
-  await expect(page.getByText("Email and external monitoring are not connected", { exact: false })).toBeVisible();
+  await expect(page.getByText("Email is not connected unless explicitly configured and verified", { exact: false })).toBeVisible();
   expect(state.observed).toContain("/api/v1/security/status");
 });
 test("customer administrator cannot see or fetch platform incident panel", async ({ page }) => {
