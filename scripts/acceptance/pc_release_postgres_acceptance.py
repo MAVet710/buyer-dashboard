@@ -189,3 +189,33 @@ def test_extraction_batched_reads_and_single_connection_metrics(release_case):
     assert row['id'] == rid and row['cogs_usd'] == 45 and row['est_revenue_usd'] == 140
     assert x['client'].get(path).status_code == 401
     assert x['client'].get(path, headers=x['headers'](user=x['label_operator'], fac=x['alien'])).status_code == 403
+
+
+def test_security_observer_postgres_storage_auth_and_triage(release_case):
+    """Real PostgreSQL upserts, migration protections and persisted DEV role."""
+    from backend.app.security.models import SecurityEvent, SecurityIncident
+    from backend.app.security.store import append_events, detect
+    x = release_case
+    now = time.time()
+    uid = str(uuid4())
+    with Session(x["engine"]) as session, session.begin():
+        session.add(AppUser(id=uid, organization_id=x["org"], username=uid, normalized_username=uid,
+            email=uid+"@example.test",password_hash="test-only",role="dev",active=True,must_change_password=False))
+        for table in ("security_events","security_incidents","security_monitor_state"):
+            assert session.scalar(text("SELECT relrowsecurity FROM pg_class WHERE oid=CAST(:name AS regclass)"),
+                                  {"name":"public."+table}) is True
+        values=[dict(id=str(uuid4()),occurred_at=now,kind="login_failure",subject_key="pg-test-subject",
+            source_key="",actor_id="",organization_id="",route="/account/username-login",request_id="",audit_id="") for _ in range(8)]
+        append_events(session,values); append_events(session,values)
+        detect(session,now); detect(session,now)
+        assert session.scalar(select(func.count()).select_from(SecurityEvent))==8
+        row=session.scalar(select(SecurityIncident).where(SecurityIncident.rule=="login_failures"))
+        identifier=row.id
+    assert x["client"].get("/api/v1/security/incidents").status_code==401
+    assert x["client"].get("/api/v1/security/incidents",headers={**x["headers"](),"X-User-Role":"dev"}).status_code==403
+    headers=x["headers"](user=uid)
+    result=x["client"].get("/api/v1/security/incidents",headers=headers)
+    assert result.status_code==200 and result.json()["total"]==1
+    result=x["client"].post(f"/api/v1/security/incidents/{identifier}/triage",headers=headers,
+        json={"status":"acknowledged","expected_version":1})
+    assert result.status_code==200 and result.json()["version"]==2

@@ -2,7 +2,7 @@ import json
 from urllib.error import HTTPError, URLError
 from urllib.request import Request as UrlRequest, urlopen
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine, select
@@ -12,6 +12,7 @@ from modules.coman.models import AppUser, AppUserFacilityRole, AuditEvent, Facil
 from ..auth import RequestContext, bearer, get_request_context
 from ..config import Settings, get_settings
 from ..database import get_engine
+from ..security.runtime import observe
 
 router = APIRouter(prefix="/account", tags=["account"])
 
@@ -140,8 +141,7 @@ def _facilities_for_user(session: Session, context: RequestContext, organization
     )
 
 
-@router.post("/username-login")
-def username_login(
+def _username_login(
     payload: UsernameLogin,
     engine: Engine = Depends(get_engine),
     settings: Settings = Depends(get_settings),
@@ -179,6 +179,22 @@ def username_login(
         "access_token": auth_session["access_token"],
         "refresh_token": auth_session["refresh_token"],
     }
+
+
+@router.post("/username-login")
+def username_login(payload: UsernameLogin, engine: Engine = Depends(get_engine),
+                   settings: Settings = Depends(get_settings), request: Request = None):
+    # Only normalized account identity enters the HMAC helper; passwords and
+    # returned tokens never enter telemetry. Provider outages are not bad logins.
+    subject = payload.username.strip().casefold()
+    try:
+        result = _username_login(payload, engine, settings)
+    except HTTPException as exc:
+        if exc.status_code == 400 and exc.detail == "Invalid login credentials.":
+            observe(request, "login_failure", subject)
+        raise
+    observe(request, "login_success", subject)
+    return result
 
 
 @router.get("/context")
