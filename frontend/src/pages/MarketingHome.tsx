@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   ArrowDown,
   ArrowRight,
@@ -16,7 +17,10 @@ import { services } from "../lib/consultingServices";
 import { trackMarketingEvent } from "../lib/marketingAnalytics";
 import { MarketingNav } from "../components/marketing/MarketingNav";
 import { MarketingFooter } from "../components/marketing/MarketingPage";
-import { ProductShowcase } from "../components/marketing/ProductShowcase";
+import {
+  ProductShowcase,
+  type ProductWorkspaceId,
+} from "../components/marketing/ProductShowcase";
 import { Solutions } from "../components/marketing/Solutions";
 import { MarketingContactChannels } from "../components/ContactChannels";
 import { marketingFaqs } from "../components/marketing/content";
@@ -76,6 +80,45 @@ const onboarding = [
     "Approved beta partners evaluate the agreed workspace with the people who do the work.",
   ],
 ];
+
+const productProofCopy: Record<
+  ProductWorkspaceId,
+  { eyebrow: string; title: [string, string]; body: string; bullets: string[] }
+> = {
+  buyer: {
+    eyebrow: "02 / Product proof",
+    title: ["See the work before", "you ask for the report."],
+    body:
+      "These are working DoobieLogic product surfaces, not a concept mockup. Synthetic demonstration data keeps private operator data out while the buying, inventory and workflow experience stays real.",
+    bullets: [
+      "Real DoobieLogic product surfaces",
+      "Synthetic demonstration data",
+      "Verified Metrc integration",
+    ],
+  },
+  inventory: {
+    eyebrow: "02 / Inventory proof",
+    title: ["See the stock before", "you chase the variance."],
+    body:
+      "Inspect real inventory workflow, product records and operational context in the DoobieLogic beta workspace using synthetic demonstration data.",
+    bullets: [
+      "Real inventory workflow",
+      "Synthetic demonstration data",
+      "Operational inventory visibility",
+    ],
+  },
+  extraction: {
+    eyebrow: "02 / Extraction proof",
+    title: ["See the run before", "you read the report."],
+    body:
+      "Explore real extraction workflow, production intelligence, and traceable input-to-output operations. Synthetic demonstration data shows how DoobieLogic connects your material, processes, yields, and compliance so you can move from run to insight with confidence.",
+    bullets: [
+      "Real extraction workflow",
+      "Synthetic demonstration data",
+      "Input-to-output traceability",
+    ],
+  },
+};
 
 function BetaLink({
   placement,
@@ -152,6 +195,10 @@ function ExtractionWorkflowProof() {
 }
 
 export function MarketingHome() {
+  const [productWorkspace, setProductWorkspace] =
+    useState<ProductWorkspaceId>("buyer");
+  const productProof = productProofCopy[productWorkspace];
+
   return (
     <div className="marketing-page mh-page">
       <a className="mh-skip" href="#main-content">
@@ -289,32 +336,27 @@ export function MarketingHome() {
           id="platform"
           aria-labelledby="platform-heading"
         >
-          <div className="mh-platform-proof-copy">
-            <span className="mh-eyebrow">02 / Product proof</span>
+          <div className="mh-platform-proof-copy" aria-live="polite">
+            <span className="mh-eyebrow">{productProof.eyebrow}</span>
             <h2 id="platform-heading">
-              See the work before
+              {productProof.title[0]}
               <br />
-              you ask for the report.
+              {productProof.title[1]}
             </h2>
-            <p>
-              These are working DoobieLogic product surfaces, not a concept
-              mockup. Synthetic demonstration data keeps private operator data
-              out while the buying, inventory and workflow experience stays real.
-            </p>
+            <p>{productProof.body}</p>
             <div className="mh-platform-proof-points">
-              <span>
-                <Check size={15} /> Real DoobieLogic product surfaces
-              </span>
-              <span>
-                <Check size={15} /> Synthetic demonstration data
-              </span>
-              <span>
-                <Check size={15} /> Verified Metrc integration
-              </span>
+              {productProof.bullets.map(bullet => (
+                <span key={bullet}>
+                  <Check size={15} /> {bullet}
+                </span>
+              ))}
             </div>
           </div>
           <div className="mh-platform-proof-product mh-reveal mh-reveal-delay">
-            <ProductShowcase />
+            <ProductShowcase
+              activeView={productWorkspace}
+              onViewChange={setProductWorkspace}
+            />
           </div>
         </section>
 
