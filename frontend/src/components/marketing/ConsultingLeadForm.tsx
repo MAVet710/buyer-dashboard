@@ -67,7 +67,7 @@ export function ConsultingLeadForm({service = "not-sure", sourceTool, toolInputs
       <label className="ad-consent"><input type="checkbox" name="consent" required/><span>I agree that DoobieLogic may store these details{sourceTool === "operations-score" ? " and my assessment answers" : ""}, including referral information, to review this inquiry and contact me about consulting. This does not subscribe me to marketing emails.</span></label>
       <button className="mh-button" type="submit" disabled={busy}>{busy?"Sending request…":"Request my free consultation"}<ArrowUpRight size={17}/></button></fieldset>
       {(error||reference)&&<div ref={feedback} tabIndex={-1} className="ad-feedback" role={error?"alert":"status"}>{error?<><strong>We could not confirm your request.</strong><p>{error}</p></>:<><strong>Your consultation request is saved.</strong><p>We’ll follow up using the email you provided to agree on a time. Reference: {reference}</p></>}</div>}
-      <p className="ad-note">Your inventory file stays in your browser. Contact <a href="mailto:info@doobielogic.io">info@doobielogic.io</a> with questions about your inquiry or to request deletion.</p>
+      <p className="ad-note">Your inventory file stays in your browser. Contact <a href="mailto:support@doobielogic.io">support@doobielogic.io</a> with questions about your inquiry or to request deletion.</p>
     </form>
   </section>;
 }

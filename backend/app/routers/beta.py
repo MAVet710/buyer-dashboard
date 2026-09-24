@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from email.message import EmailMessage
-from email.utils import formataddr, formatdate, make_msgid
 import re
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -10,13 +8,10 @@ from sqlalchemy import Engine
 
 from ..config import Settings, get_settings
 from ..database import get_engine
-from ..services.spacemail import SpacemailError, resolve_spacemail_settings, send_transactional_message
+from ..services import advisory
+from modules.advisory.schemas import LeadInput
 
 router = APIRouter(prefix="/beta", tags=["beta"])
-
-BETA_APPLICATION_RECIPIENT = "nelson@doobielogic.io"
-BETA_APPLICATION_SENDER_NAME = "DoobieLogic Beta"
-
 
 class BetaApplication(BaseModel):
     name: str = Field(min_length=2, max_length=120)
@@ -52,61 +47,35 @@ def submit_beta_application(
     engine: Engine = Depends(get_engine),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, object]:
-    # Hidden honeypot. Bots that populate it receive the same public response but
-    # do not create mail or expose the filtering rule.
+    # Hidden honeypot: bots receive the same public response without persistence.
     if payload.website:
         return {"accepted": True}
 
     if not payload.consent:
         raise HTTPException(status_code=422, detail="Beta participation consent is required.")
 
-    mail_settings = resolve_spacemail_settings(engine, settings)
-    if not mail_settings.transactional_email_is_configured:
-        raise HTTPException(status_code=503, detail="Beta applications are temporarily unavailable. Please try again shortly.")
-
-    sender = str(mail_settings.spacemail_info_email or "").strip().casefold()
-    if not sender:
-        raise HTTPException(status_code=503, detail="Beta application sender is not configured.")
-
-    message = EmailMessage()
-    message["Subject"] = f"DoobieLogic Beta Application — {payload.company} — {payload.name}"
-    message["From"] = formataddr((BETA_APPLICATION_SENDER_NAME, sender))
-    message["To"] = BETA_APPLICATION_RECIPIENT
-    message["Reply-To"] = payload.email
-    message["Date"] = formatdate(localtime=False)
-    message["Message-ID"] = make_msgid(domain="doobielogic.io")
-    message["X-Auto-Response-Suppress"] = "All"
-    message.set_content(
-        "\n".join(
-            [
-                "New DoobieLogic Beta Partner application",
-                "",
-                f"Name: {payload.name}",
-                f"Email: {payload.email}",
-                f"Company: {payload.company}",
-                f"Role: {payload.role}",
-                f"Operation type: {payload.operation}",
-                f"Facilities / licenses: {payload.facilities}",
-                f"State: {payload.state}",
-                f"Primary POS / ERP: {payload.stack or 'Not provided'}",
-                "",
-                "Biggest operational problem:",
-                payload.pain,
-                "",
-                "What would make DoobieLogic indispensable:",
-                payload.must_have or "Not provided",
-                "",
-                "Beta data / feedback consent: Yes",
-            ]
-        )
+    match = re.search(r"\d+", payload.facilities)
+    locations = max(1, min(10000, int(match.group()) if match else 1))
+    details = "\n".join(
+        [
+            f"Beta facilities / licenses: {payload.facilities}",
+            f"Primary POS / ERP: {payload.stack or 'Not provided'}",
+            "",
+            "What would make DoobieLogic indispensable:",
+            payload.must_have or "Not provided",
+        ]
     )
-
-    try:
-        send_transactional_message(mail_settings, message)
-    except SpacemailError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail="We could not deliver the beta application right now. Please try again shortly.",
-        ) from exc
-
-    return {"accepted": True}
+    lead = LeadInput(
+        name=payload.name,
+        email=payload.email,
+        company=payload.company,
+        role=payload.role,
+        state=payload.state,
+        operation=payload.operation,
+        locations=locations,
+        challenge=payload.pain,
+        service="beta-program",
+        message=details,
+        consent=True,
+    )
+    return advisory.capture_lead(engine, settings, lead)
