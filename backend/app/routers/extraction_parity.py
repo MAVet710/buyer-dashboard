@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from modules.coman.models import Customer
 from modules.extraction.models import ExtractionRun
 from modules.extraction.repository import ExtractionRepository
-from modules.extraction.performance import ExtractionPerformanceService
+from modules.extraction.overview import load_extraction_overview
 from modules.extraction.workflows import (
     TERPENE_HANDLING_MODES,
     calculate_terpene_weight_g,
@@ -170,8 +170,7 @@ def _enhancement_values(payload: ManualRunCreate) -> dict:
 
 @router.get("/overview")
 def overview(context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
-    repo = _repo(engine)
-    runs = repo.list_runs(context.organization_id, context.facility_id, include_closed=True)
+    runs, facts = load_extraction_overview(engine, context.organization_id, context.facility_id)
     rows = []
     finished = 0.0
     yields = []
@@ -179,13 +178,13 @@ def overview(context: RequestContext = Depends(get_request_context), engine: Eng
     toll_jobs = 0
     total_cogs = 0.0
     total_revenue = 0.0
-    performance = ExtractionPerformanceService(engine)
     for run in runs:
-        mass = repo.mass_balance(context.organization_id, context.facility_id, run.id)
-        cogs = repo.cogs_summary(context.organization_id, context.facility_id, run.id)
-        toll = repo.get_toll_job(context.organization_id, context.facility_id, run.id)
-        qa = repo.list_qa_events(context.organization_id, context.facility_id, run.id)
-        trace = repo.list_traceability_transactions(context.organization_id, context.facility_id, run.id)
+        fact = facts[run.id]
+        mass = {"consumed_input": fact.consumed, "recorded_output": fact.recorded_output,
+                "unaccounted_balance": max(0.0, fact.consumed - fact.recorded_output)}
+        cogs = {"total": fact.total_cogs, "cost_per_output_unit":
+                fact.total_cogs / fact.active_output if fact.active_output > 0 else 0.0}
+        toll = fact.toll
         input_weight = float(mass.get("consumed_input", 0)) or float(run.manual_input_weight_g or 0)
         output_weight = (
             float(mass.get("recorded_output", 0))
@@ -195,12 +194,11 @@ def overview(context: RequestContext = Depends(get_request_context), engine: Eng
         yield_pct = output_weight / input_weight * 100 if input_weight else 0.0
         finished += output_weight
         yields.append(yield_pct)
-        economics = performance.run_metrics(context.organization_id, context.facility_id, run.id)
         run_cogs = float(cogs.get("total", 0)) or float(run.manual_cogs_usd or 0)
-        run_revenue = float(economics.get("projected_output_value", 0)) or float(run.estimated_revenue_usd or 0)
+        run_revenue = fact.projected_value or float(run.estimated_revenue_usd or 0)
         total_cogs += run_cogs
         total_revenue += run_revenue
-        qa_hold = bool(run.manual_qa_hold) or run.status == "hold" or any(event.result == "failed" for event in qa)
+        qa_hold = bool(run.manual_qa_hold) or run.status == "hold" or fact.qa_failed
         qa_holds += int(qa_hold)
         toll_jobs += int(toll is not None or run.toll_processing)
         rows.append({
@@ -251,9 +249,9 @@ def overview(context: RequestContext = Depends(get_request_context), engine: Eng
             "cost_per_output_unit": cogs.get("cost_per_output_unit", 0),
             "est_revenue_usd": run_revenue,
             "qa_hold": qa_hold,
-            "coa_status": ("failed" if any(event.result == "failed" for event in qa) else "passed" if any(event.result == "passed" for event in qa) else run.manual_coa_status).title(),
+            "coa_status": ("failed" if fact.qa_failed else "passed" if fact.qa_passed else run.manual_coa_status).title(),
             "notes": run.notes,
-            "traceability_count": len(trace),
+            "traceability_count": fact.traceability_count,
             "toll_job": _toll(toll),
             **{field: float(getattr(run, field, 0.0) or 0.0) for field in RUN_STAGE_OUTPUT_FIELDS},
         })

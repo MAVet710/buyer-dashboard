@@ -152,3 +152,40 @@ def test_buyer_current_stock_matches_inventory_on_postgres(release_case):
     for key in ["unit","on_hand","available","reserved","package_id","product_id"]:
         assert actual[x["lot"]][key]==expected[x["lot"]][key]
     assert actual[x["lot"]]["on_hand"]==10
+
+
+
+def test_extraction_batched_reads_and_single_connection_metrics(release_case):
+    """Exercise the repaired read model on migrated PostgreSQL with real auth."""
+    from modules.extraction.models import ExtractionRun
+    from modules.extraction.performance import ExtractionPerformanceService
+    from modules.extraction.performance_models import ExtractionResourceEvent
+    from modules.extraction.overview import load_extraction_overview
+    x = release_case
+    rid, other_rid = str(uuid4()), str(uuid4())
+    with Session(x['engine']) as session, session.begin():
+        for run_id, org, fac in [(rid, x['org'], x['facility']), (other_rid, x['other'], x['alien'])]:
+            session.add(ExtractionRun(id=run_id, organization_id=org, facility_id=fac,
+                batch_number='PG-QA-'+run_id, method='Ethanol', workflow_key='ethanol_crude',
+                created_by='QA', updated_by='QA', manual_input_weight_g=100,
+                manual_finished_output_g=20, manual_cogs_usd=45, estimated_revenue_usd=140))
+        session.flush()
+        session.add(ExtractionResourceEvent(organization_id=x['org'], facility_id=x['facility'],
+            run_id=rid, resource_type='solvent', resource_name='Synthetic', quantity=10,
+            recovered_quantity=8, unit='g', cost_usd=5, actor='QA'))
+    single = create_engine(x['engine'].url, pool_size=1, max_overflow=0, pool_timeout=0.1)
+    try:
+        rows, facts = load_extraction_overview(single, x['org'], x['facility'])
+        assert [row.id for row in rows] == [rid] and other_rid not in facts
+        metrics = ExtractionPerformanceService(single).run_metrics(x['org'], x['facility'], rid)
+        assert metrics['resource_cost'] == 5 and metrics['solvent_recovery_pct'] == 80
+        assert single.pool.checkedout() == 0
+    finally:
+        single.dispose()
+    path = '/api/v1/extraction-parity/overview'
+    response = x['client'].get(path, headers=x['headers'](user=x['label_operator']))
+    assert response.status_code == 200
+    row = response.json()['runs'][0]
+    assert row['id'] == rid and row['cogs_usd'] == 45 and row['est_revenue_usd'] == 140
+    assert x['client'].get(path).status_code == 401
+    assert x['client'].get(path, headers=x['headers'](user=x['label_operator'], fac=x['alien'])).status_code == 403
