@@ -16,6 +16,7 @@ def test_production_shell_uses_doobielogic_brand_without_renaming_storage_keys()
     assert '<div className="eyebrow">DoobieLogic</div>' in shell
     assert '<span>DL</span><strong>DoobieLogic</strong>' in auth
     assert '/doobielogic-logo.webp' in brand_css
+    assert 'background: url("/doobielogic-logo.webp") center / cover no-repeat !important;' in brand_css
     assert 'IMG_7158.PNG' not in brand_css
     assert '<title>DoobieLogic | Veteran-Built Cannabis ERP &amp; Operations Software</title>' in index
 
