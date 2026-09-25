@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from "react";
 import { apiDownload, apiGet, apiPost, downloadBlob } from "../lib/api";
 import { BuyerLegacyOverview, type BuyerInventoryTarget } from "../components/BuyerLegacyOverview";
 
+import type { BuyerView } from "./BuyerCommandCenterPage";
+
 type Row = Record<string, unknown>;
 type Dashboard = {
   controls: { target_doh: number; velocity_adjustment: number; sales_days: number; sku_window: number };
@@ -44,7 +46,7 @@ const PRODUCT_COLUMNS = ["product_name","subcategory","strain_type","packagesize
 const SKU_COLUMNS = ["sku","product_name","brand_vendor","category","onhandunits","avg_weekly_sales","days_of_supply","weeks_of_supply","dollars_on_hand","retail_dollars_on_hand","expiration_date","days_to_expire","status"];
 const SKU_COMPACT_COLUMNS = ["product_name","category","brand_vendor","onhandunits","avg_weekly_sales","days_of_supply","dollars_on_hand","expiration_date","status"];
 
-export function BuyerOperationsPage(_props: { onNavigate?: (page: string) => void }) {
+export function BuyerOperationsPage({ view = "analyze", onViewChange }: { view?: BuyerView; onViewChange?: (view: BuyerView) => void }) {
   const [targetDoh, setTargetDoh] = useState(21);
   const [velocity, setVelocity] = useState(0.5);
   const [salesDays, setSalesDays] = useState(60);
@@ -55,6 +57,7 @@ export function BuyerOperationsPage(_props: { onNavigate?: (page: string) => voi
   const [showProductRows, setShowProductRows] = useState(false);
   const [skuTab, setSkuTab] = useState<SkuTab>("all");
   const [statusViewsOpen, setStatusViewsOpen] = useState(false);
+  const [allColumnsOpen, setAllColumnsOpen] = useState(false);
   const [buyerSearch, setBuyerSearch] = useState("");
   const [showTopN, setShowTopN] = useState(0);
   const [sortBy, setSortBy] = useState("dollars_on_hand_desc");
@@ -76,6 +79,7 @@ export function BuyerOperationsPage(_props: { onNavigate?: (page: string) => voi
     sku_window: String(skuWindow),
   }), [targetDoh, velocity, salesDays, skuWindow]);
   const dashboard = useQuery({
+    enabled: view !== "today",
     queryKey: ["buyer-parity", targetDoh, velocity, salesDays, skuWindow],
     queryFn: ({ signal }) => apiGet<Dashboard>(`/api/v1/buyer-parity/dashboard?${query}`, signal),
   });
@@ -149,6 +153,7 @@ export function BuyerOperationsPage(_props: { onNavigate?: (page: string) => voi
 
   const selectInventoryCondition = (target: BuyerInventoryTarget) => {
     if (target === "no-stock") setOnHandOnly(false);
+    onViewChange?.("analyze");
     setSkuTab(target);
     setStatusViewsOpen(true);
     window.requestAnimationFrame(() => document.getElementById("buyer-status-views")?.scrollIntoView({ behavior: "smooth", block: "start" }));
@@ -193,20 +198,41 @@ export function BuyerOperationsPage(_props: { onNavigate?: (page: string) => voi
     downloadBlob(await apiDownload(`/api/v1/buyer-parity/export?${params}`), names[kind]);
   };
 
-  return <div className="page">
-    <div className="page-heading"><div><div className="eyebrow">Purchasing</div><h1>Buyer Dashboard</h1><p>The original buyer workflow, restored as one continuous DoobieLogic purchasing command center.</p></div></div>
-
+  if (view === "today") return null;
+  return <div className="buyer-analysis-workspace">
+    <details className="streamlit-expander"><summary>Forecast controls and buyer filters</summary>
     <section className="inventory-panel parity-controls buyer-primary-controls">
       <NumberControl label="Target Days on Hand" value={targetDoh} min={1} max={60} step={1} onChange={setTargetDoh}/>
       <NumberControl label="Velocity Adjustment" value={velocity} min={0.01} max={5} step={0.01} onChange={setVelocity}/>
       <label>Days in Sales Period<input type="range" min={7} max={120} value={salesDays} onChange={event => setSalesDays(Number(event.target.value))}/><span>{salesDays}</span></label>
     </section>
 
-    <BuyerLegacyOverview targetDoh={targetDoh} velocityAdjustment={velocity} salesDays={salesDays} skuWindow={skuWindow} topN={showTopN} onInventoryCondition={selectInventoryCondition}/>
+      <section className="inventory-panel buyer-filter-settings">
+        <h3>🔍 Buyer Filters &amp; Settings</h3>
+        <div className="buyer-settings-grid">
+          <label className="buyer-setting-wide">Search (SKU / Product / Brand)<span className="field-help" title="Filters the current SKU inventory view and the inventory slice sent to Doobie.">?</span><input value={buyerSearch} placeholder="Type to filter…" onChange={event => setBuyerSearch(event.target.value)}/></label>
+          <label>Velocity window<span className="field-help" title="Sales history used to calculate run rate and days of supply.">?</span><select value={skuWindow} onChange={event => setSkuWindow(Number(event.target.value))}><option value={28}>Last 28 days</option><option value={56}>Last 56 days</option><option value={84}>Last 84 days</option></select></label>
+          <label>Show top N<select value={showTopN} onChange={event => setShowTopN(Number(event.target.value))}><option value={0}>All</option><option value={10}>10</option><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option></select></label>
+          <label>Sort by<select value={sortBy} onChange={event => setSortBy(event.target.value)}><option value="dollars_on_hand_desc">$ on hand ↓</option><option value="days_of_supply_asc">DOH ↑</option><option value="days_of_supply_desc">DOH ↓</option><option value="weekly_sales_desc">Weekly sales ↓</option><option value="on_hand_desc">On hand ↓</option><option value="expiration_asc">Expiration ↑</option></select></label>
+          <label>Category / Subcategory<select value={legacyCategory} onChange={event => setLegacyCategory(event.target.value)}><option>All</option>{legacyCategoryOptions.map(category => <option key={category}>{category}</option>)}</select></label>
+          <label>Vendor / Brand<select value={legacyBrand} onChange={event => setLegacyBrand(event.target.value)}><option>All</option>{legacyBrandOptions.map(brand => <option key={brand}>{brand}</option>)}</select></label>
+          <label>Expiration window<span className="field-help" title="Limits the current view by the nearest expiration date when inventory provides one.">?</span><select value={expirationWindow} onChange={event => setExpirationWindow(event.target.value)}><option>Any</option><option>30 days</option><option>60 days</option><option>90 days</option><option>Expired</option></select></label>
+          <label className="toggle buyer-onhand-toggle"><input type="checkbox" checked={onHandOnly} onChange={event => setOnHandOnly(event.target.checked)}/> On-hand &gt; 0 <span className="field-help" title="When enabled, zero-stock items are removed from the working view.">?</span></label>
+          <NumberControl label="DOH min (days)" value={minDoh} min={0} max={9999} step={1} onChange={setMinDoh}/>
+          <NumberControl label="DOH max (days)" value={maxDoh} min={0} max={9999} step={1} onChange={setMaxDoh}/>
+        </div>
+      </section>
+
+    </details>
+
+    {view === "analyze" ? <BuyerLegacyOverview targetDoh={targetDoh} velocityAdjustment={velocity} salesDays={salesDays} skuWindow={skuWindow} topN={showTopN} onInventoryCondition={selectInventoryCondition}/> : null}
 
     {dashboard.isError ? <div className="state error">{dashboard.error.message}</div> : null}
     {dashboard.isLoading ? <div className="state">Building the Buyer Dashboard forecast from the active inventory and sales sources…</div> : null}
-    {dashboard.data ? <>
+    {dashboard.data && !dashboard.isError ? <>
+      <div className="buyer-context-strip" aria-label="Uploaded KPI context"><span>{dashboard.data.summary.units_sold.toLocaleString()} units sold</span><span>{dashboard.data.summary.reorder_asap.toLocaleString()} reorder lines</span><span>{money(filteredCondition.onHandCost)} filtered stock cost</span></div>
+      {view === "decide" ? <DecisionQueue rows={filteredInventoryBase} onAct={() => onViewChange?.("act")} /> : null}
+      {view === "analyze" ? <>
       <section className="buyer-filter-buttons">
         <button className={`metric metric-button ${metricFilter === "All" ? "active" : ""}`} type="button" onClick={() => setMetricFilter("All")}><span>Units Sold (Granular Size-Level)</span><strong>{dashboard.data.summary.units_sold.toLocaleString()}</strong></button>
         <button className={`metric metric-button ${metricFilter === "Reorder ASAP" ? "active" : ""}`} type="button" onClick={() => setMetricFilter("Reorder ASAP")}><span>Reorder ASAP (Lines)</span><strong>{dashboard.data.summary.reorder_asap.toLocaleString()}</strong></button>
@@ -250,22 +276,6 @@ export function BuyerOperationsPage(_props: { onNavigate?: (page: string) => voi
         <div className="download-row"><button className="secondary" type="button" onClick={() => download("product")}>📥 Download Product-Level Table (Excel)</button></div>
       </section> : null}
 
-      <section className="inventory-panel buyer-filter-settings">
-        <h3>🔍 Buyer Filters &amp; Settings</h3>
-        <div className="buyer-settings-grid">
-          <label className="buyer-setting-wide">Search (SKU / Product / Brand)<span className="field-help" title="Filters the current SKU inventory view and the inventory slice sent to Doobie.">?</span><input value={buyerSearch} placeholder="Type to filter…" onChange={event => setBuyerSearch(event.target.value)}/></label>
-          <label>Velocity window<span className="field-help" title="Sales history used to calculate run rate and days of supply.">?</span><select value={skuWindow} onChange={event => setSkuWindow(Number(event.target.value))}><option value={28}>Last 28 days</option><option value={56}>Last 56 days</option><option value={84}>Last 84 days</option></select></label>
-          <label>Show top N<select value={showTopN} onChange={event => setShowTopN(Number(event.target.value))}><option value={0}>All</option><option value={10}>10</option><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option></select></label>
-          <label>Sort by<select value={sortBy} onChange={event => setSortBy(event.target.value)}><option value="dollars_on_hand_desc">$ on hand ↓</option><option value="days_of_supply_asc">DOH ↑</option><option value="days_of_supply_desc">DOH ↓</option><option value="weekly_sales_desc">Weekly sales ↓</option><option value="on_hand_desc">On hand ↓</option><option value="expiration_asc">Expiration ↑</option></select></label>
-          <label>Category / Subcategory<select value={legacyCategory} onChange={event => setLegacyCategory(event.target.value)}><option>All</option>{legacyCategoryOptions.map(category => <option key={category}>{category}</option>)}</select></label>
-          <label>Vendor / Brand<select value={legacyBrand} onChange={event => setLegacyBrand(event.target.value)}><option>All</option>{legacyBrandOptions.map(brand => <option key={brand}>{brand}</option>)}</select></label>
-          <label>Expiration window<span className="field-help" title="Limits the current view by the nearest expiration date when inventory provides one.">?</span><select value={expirationWindow} onChange={event => setExpirationWindow(event.target.value)}><option>Any</option><option>30 days</option><option>60 days</option><option>90 days</option><option>Expired</option></select></label>
-          <label className="toggle buyer-onhand-toggle"><input type="checkbox" checked={onHandOnly} onChange={event => setOnHandOnly(event.target.checked)}/> On-hand &gt; 0 <span className="field-help" title="When enabled, zero-stock items are removed from the working view.">?</span></label>
-          <NumberControl label="DOH min (days)" value={minDoh} min={0} max={9999} step={1} onChange={setMinDoh}/>
-          <NumberControl label="DOH max (days)" value={maxDoh} min={0} max={9999} step={1} onChange={setMaxDoh}/>
-        </div>
-      </section>
-
       <section className="metrics buyer-filter-condition">
         <ActionMetric label="Units On Hand" value={filteredCondition.onHandUnits} onClick={() => selectInventoryCondition("all")}/>
         <ActionMetric label="Reorder / Low Cover" value={filteredCondition.reorder} onClick={() => selectInventoryCondition("reorder")}/>
@@ -279,11 +289,14 @@ export function BuyerOperationsPage(_props: { onNavigate?: (page: string) => voi
       <section className="inventory-panel">
         <div className="section-heading"><div><h3>📋 SKU Inventory Buyer View</h3><p>{filteredSkuRows.length.toLocaleString()} SKU(s) (velocity window: {skuWindow} days){showTopN > 0 && filteredInventoryBase.length > filteredSkuRows.length ? ` · showing top ${filteredSkuRows.length.toLocaleString()} of ${filteredInventoryBase.length.toLocaleString()}` : ""}</p></div></div>
         {dashboard.data.sources.inventory.rows > 0 ? <p className="source-caption">Inventory cross-reference is active for PO-related buyer review.</p> : null}
+        <button className="secondary" onClick={() => download("sku")}>Export SKU inventory (Excel)</button>
         <DataTable rows={filteredSkuRows} columns={SKU_COMPACT_COLUMNS}/>
-        <details className="streamlit-expander buyer-all-columns"><summary>🔎 Show all columns</summary><div className="streamlit-expander-body"><DataTable rows={filteredSkuRows} columns={allSkuColumns}/></div></details>
-        <details id="buyer-status-views" className="streamlit-expander buyer-status-views" open={statusViewsOpen} onToggle={event => setStatusViewsOpen(event.currentTarget.open)}><summary>Inventory status views · {statusLabel(skuTab)}</summary><div className="streamlit-expander-body"><div className="view-tabs"><button className={skuTab === "all" ? "active" : ""} onClick={() => setSkuTab("all")}>📦 All Inventory</button><button className={skuTab === "reorder" ? "active" : ""} onClick={() => setSkuTab("reorder")}>🔴 Reorder</button><button className={skuTab === "no-stock" ? "active" : ""} onClick={() => { setOnHandOnly(false); setSkuTab("no-stock"); }}>⛔ No Stock</button><button className={skuTab === "overstock" ? "active" : ""} onClick={() => setSkuTab("overstock")}>🟠 Overstock</button><button className={skuTab === "expiring" ? "active" : ""} onClick={() => setSkuTab("expiring")}>⚠️ Expiring</button></div><DataTable rows={statusRows} columns={SKU_COLUMNS}/></div></details>
+        <details className="streamlit-expander buyer-all-columns" onToggle={event => setAllColumnsOpen(event.currentTarget.open)}><summary>🔎 Show all columns</summary><div className="streamlit-expander-body">{allColumnsOpen ? <DataTable rows={filteredSkuRows} columns={allSkuColumns}/> : null}</div></details>
+        <details id="buyer-status-views" className="streamlit-expander buyer-status-views" open={statusViewsOpen} onToggle={event => setStatusViewsOpen(event.currentTarget.open)}><summary>Inventory status views · {statusLabel(skuTab)}</summary><div className="streamlit-expander-body"><div className="view-tabs"><button className={skuTab === "all" ? "active" : ""} onClick={() => setSkuTab("all")}>📦 All Inventory</button><button className={skuTab === "reorder" ? "active" : ""} onClick={() => setSkuTab("reorder")}>🔴 Reorder</button><button className={skuTab === "no-stock" ? "active" : ""} onClick={() => { setOnHandOnly(false); setSkuTab("no-stock"); }}>⛔ No Stock</button><button className={skuTab === "overstock" ? "active" : ""} onClick={() => setSkuTab("overstock")}>🟠 Overstock</button><button className={skuTab === "expiring" ? "active" : ""} onClick={() => setSkuTab("expiring")}>⚠️ Expiring</button></div>{statusViewsOpen ? <DataTable rows={statusRows} columns={SKU_COLUMNS}/> : null}</div></details>
       </section>
 
+      </> : null}
+      {view === "act" ? <>
       <section className="inventory-panel">
         <h3>🤖 Doobie Inventory Check</h3>
         <p className="source-caption">Doobie replaces the legacy AI Inventory Check and evaluates this exact filtered buyer view.</p>
@@ -298,22 +311,33 @@ export function BuyerOperationsPage(_props: { onNavigate?: (page: string) => voi
         {buyerBrief.isError ? <div className="state error">{buyerBrief.error.message}</div> : null}
         {buyerBrief.data ? <DoobieAnswer result={buyerBrief.data}/> : null}
       </section>
+      </> : null}
     </> : null}
   </div>;
 }
 
+function DecisionQueue({ rows, onAct }: { rows: Row[]; onAct: () => void }) {
+  const groups = [
+    { title: "Reorder / low cover", evidence: "21 days of supply or less", rows: rows.filter(row => number(row.days_of_supply) > 0 && number(row.days_of_supply) <= 21).sort((a, b) => number(a.days_of_supply) - number(b.days_of_supply)) },
+    { title: "Expiring", evidence: "Expires in fewer than 60 days", rows: rows.filter(row => { const days = optionalNumber(row.days_to_expire); return days != null && days >= 0 && days < 60; }).sort((a, b) => number(a.days_to_expire) - number(b.days_to_expire)) },
+    { title: "Overstock", evidence: "90 days of supply or more", rows: rows.filter(row => number(row.days_of_supply) >= 90).sort((a, b) => number(b.dollars_on_hand) - number(a.dollars_on_hand)) },
+  ];
+  return <section aria-label="Prioritized buyer decisions"><h2>Decide what needs action</h2><p>Filtered uploaded inventory. Lowest cover, nearest expiry, then highest excess cost. Review full SKU evidence in Analyze.</p>{groups.map(group => <article className="inventory-panel" key={group.title}><h3>{group.title} · {group.rows.length}</h3><p>{group.evidence}. Showing the first five.</p>{group.rows.length ? <ul className="buyer-decision-list">{group.rows.slice(0, 5).map((row, index) => <li key={index}><strong>{text(row.product_name)}</strong><span>{render(row.days_of_supply)} days supply · {render(row.onhandunits)} on hand · {money(number(row.dollars_on_hand))}{optionalNumber(row.days_to_expire) != null ? ` · expires in ${number(row.days_to_expire)} days` : ""}</span></li>)}</ul> : <p>No matching exceptions.</p>}</article>)}<button className="primary" onClick={onAct}>Act on these decisions</button></section>;
+}
+
 function CategoryExpander({ category, rows, targetDoh, velocity, salesDays }: { category: string; rows: Row[]; targetDoh: number; velocity: number; salesDays: number }) {
+  const [open, setOpen] = useState(false);
   const onHand = rows.reduce((sum, row) => sum + number(row.onhandunits), 0);
   const daily = rows.reduce((sum, row) => sum + number(row.avgunitsperday), 0);
   const categoryDos = daily > 0 ? Math.trunc(onHand / daily) : 0;
   const flagged = rows.filter(row => text(row.reorderpriority) === "1 – Reorder ASAP");
-  return <details className="streamlit-expander"><summary>{title(category)}</summary><div className="streamlit-expander-body"><p><strong>Category DOS:</strong> {categoryDos} days</p><DataTable rows={rows} columns={FORECAST_COLUMNS}/>{flagged.length ? <><h4>🔎 Flagged Reorder Lines — View SKUs (Weighted by Velocity)</h4>{flagged.map((row, index) => <ReorderExpander key={`${category}-${text(row.strain_type)}-${text(row.packagesize)}-${index}`} row={row} targetDoh={targetDoh} velocity={velocity} salesDays={salesDays}/>)}</> : null}</div></details>;
+  return <details className="streamlit-expander" onToggle={event => setOpen(event.currentTarget.open)}><summary>{title(category)}</summary>{open ? <div className="streamlit-expander-body"><p><strong>Category DOS:</strong> {categoryDos} days</p><DataTable rows={rows} columns={FORECAST_COLUMNS}/>{flagged.length ? <><h4>🔎 Flagged Reorder Lines : View SKUs (Weighted by Velocity)</h4>{flagged.map((row, index) => <ReorderExpander key={`${category}-${text(row.strain_type)}-${text(row.packagesize)}-${index}`} row={row} targetDoh={targetDoh} velocity={velocity} salesDays={salesDays}/>)}</> : null}</div> : null}</details>;
 }
 
 function ReorderExpander({ row, targetDoh, velocity, salesDays }: { row: Row; targetDoh: number; velocity: number; salesDays: number }) {
   const [open, setOpen] = useState(false);
   const label = `${text(row.strain_type) || "unspecified"} • ${text(row.packagesize) || "unspecified"} • Reorder Qty: ${Math.trunc(number(row.reorderqty))}`;
-  return <details className="streamlit-expander" onToggle={event => setOpen(event.currentTarget.open)}><summary>View SKUs — {label}</summary><div className="streamlit-expander-body">{open ? <ReorderDrilldown row={row} targetDoh={targetDoh} velocity={velocity} salesDays={salesDays}/> : null}</div></details>;
+  return <details className="streamlit-expander" onToggle={event => setOpen(event.currentTarget.open)}><summary>View SKUs : {label}</summary><div className="streamlit-expander-body">{open ? <ReorderDrilldown row={row} targetDoh={targetDoh} velocity={velocity} salesDays={salesDays}/> : null}</div></details>;
 }
 
 function ReorderDrilldown({ row, targetDoh, velocity, salesDays }: { row: Row; targetDoh: number; velocity: number; salesDays: number }) {
@@ -388,4 +412,4 @@ function number(value: unknown) { const parsed = Number(value); return Number.is
 function optionalNumber(value: unknown) { if (value == null || value === "") return null; const parsed = Number(value); return Number.isFinite(parsed) ? parsed : null; }
 function sortedUnique(values: string[]) { return Array.from(new Set(values.filter(value => value.trim()))).sort((a, b) => a.localeCompare(b)); }
 function money(value: number) { return Number(value || 0).toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 }); }
-function render(value: unknown) { if (value == null || value === "") return "—"; if (typeof value === "number") return Number.isInteger(value) ? value.toLocaleString() : value.toLocaleString(undefined, { maximumFractionDigits: 2 }); if (typeof value === "boolean") return value ? "Yes" : "No"; if (Array.isArray(value)) return value.join(", "); if (typeof value === "object") return JSON.stringify(value); return String(value); }
+function render(value: unknown) { if (value == null || value === "") return "Not available"; if (typeof value === "number") return Number.isInteger(value) ? value.toLocaleString() : value.toLocaleString(undefined, { maximumFractionDigits: 2 }); if (typeof value === "boolean") return value ? "Yes" : "No"; if (Array.isArray(value)) return value.join(", "); if (typeof value === "object") return JSON.stringify(value); return String(value); }

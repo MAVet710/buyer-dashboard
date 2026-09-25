@@ -13,16 +13,16 @@ type Stock = {
   sales_sources: { state: string; message: string; items: Array<{ dataset: string; filename: string; rows: number; published_at: string }> };
 };
 
-export function BuyerCurrentInventory() {
+export function BuyerCurrentInventory({ compact = false }: { compact?: boolean }) {
   const context = useQuery({ queryKey: ["account-context"], queryFn: ({ signal }) => apiGet<Context>("/api/v1/account/context", signal) });
   if (context.isError) return <div className="state error" role="alert">Facility context is unavailable. No stock conclusion can be drawn.</div>;
   if (!context.data) return <div className="state">Loading facility context…</div>;
   const { organization, facility_id: facilityId, capabilities, user } = context.data;
   if (!organization?.id || !facilityId || !capabilities?.retail) return <div className="info-banner">Choose an authorized retail facility to view current stock.</div>;
-  return <CurrentStock key={`${organization.id}:${facilityId}:${user?.id ?? ""}`} organizationId={organization.id} facilityId={facilityId} />;
+  return <CurrentStock key={`${organization.id}:${facilityId}:${user?.id ?? ""}`} organizationId={organization.id} facilityId={facilityId} compact={compact} />;
 }
 
-function CurrentStock({ organizationId, facilityId }: { organizationId: string; facilityId: string }) {
+function CurrentStock({ organizationId, facilityId, compact }: { organizationId: string; facilityId: string; compact: boolean }) {
   const [search, setSearch] = useState("");
   const [appliedSearch, setAppliedSearch] = useState("");
   const [status, setStatus] = useState("");
@@ -40,23 +40,24 @@ function CurrentStock({ organizationId, facilityId }: { organizationId: string; 
   });
   // A failed refresh must not leave previous numbers presented as current facts.
   const data = stock.isError ? undefined : stock.data;
-  return <section className="inventory-panel buyer-current-inventory" aria-label="Current buyer inventory">
-    <div className="page-heading"><div><h2>Current stock &amp; availability</h2><p>The same package inventory used by the Inventory workspace and Inventory AI. No inventory or sales upload is required.</p></div><div className="heading-actions"><button className="secondary" type="button" disabled={stock.isFetching} onClick={() => void stock.refetch()}>Refresh current stock</button><Link className="link-button" to="/inventory">Open Inventory</Link></div></div>
-    <form className="form-grid" onSubmit={event => { event.preventDefault(); setAppliedSearch(search.trim()); setOffset(0); }}>
+  return <section className={`inventory-panel buyer-current-inventory ${compact ? "buyer-today-stock" : ""}`} aria-label="Current buyer inventory">
+    <div className="page-heading"><div><h2>Current stock &amp; availability</h2><p>{compact ? "Current ledger stock. No uploads required." : "The same package inventory used by the Inventory workspace and Inventory AI. No inventory or sales upload is required."}</p></div><div className="heading-actions"><button className="secondary" type="button" disabled={stock.isFetching} onClick={() => void stock.refetch()}>Refresh current stock</button><Link className="link-button" to="/inventory">Open Inventory</Link></div></div>
+    {!compact ? <form className="form-grid" onSubmit={event => { event.preventDefault(); setAppliedSearch(search.trim()); setOffset(0); }}>
       <label>Package, product, SKU, or location<input aria-label="Search current stock" maxLength={160} value={search} onChange={event => setSearch(event.target.value)} /></label>
       <label>Stock status<select aria-label="Current stock status" value={status} onChange={event => { setStatus(event.target.value); setOffset(0); }}><option value="">All statuses</option>{(data?.facets.statuses ?? (status ? [status] : [])).map(value => <option key={value} value={value}>{value}</option>)}</select></label>
       <label>Inventory unit<select aria-label="Current stock unit" value={unit} onChange={event => { setUnit(event.target.value); setOffset(0); }}><option value="">All units, kept separate</option>{(data?.facets.units ?? (unit ? [unit] : [])).map(value => <option key={value} value={value}>{value}</option>)}</select></label>
       <button className="primary" type="submit">Search current stock</button>
-    </form>
+    </form> : null}
     {stock.isFetching ? <div className="state" role="status">Reading current inventory…</div> : null}
     {stock.isError ? <div className="state error" role="alert">Current inventory is unavailable. This does not mean zero stock. No uploaded snapshot has been substituted. Use Refresh current stock to retry.</div> : null}
     {data ? <>
       <p className="source-caption">Database observation: {new Date(data.evidence.observed_at).toLocaleString()}. This is not a live Metrc sync check. Totals cover all matching packages, not just this page.</p>
       <div className="metrics"><article className="metric"><span>Matching packages</span><strong>{data.summary.package_count}</strong></article><article className="metric"><span>Distinct products</span><strong>{data.summary.product_count}</strong></article><article className="metric"><span>Held packages</span><strong>{data.summary.held_packages}</strong></article></div>
       {data.summary.totals_by_unit.length ? <div className="table-wrap"><table aria-label="Current stock totals by unit"><thead><tr><th>Unit</th><th>On hand</th><th>Available</th><th>Reserved</th></tr></thead><tbody>{data.summary.totals_by_unit.map(row => <tr key={row.unit}><th>{row.unit || "Unspecified unit"}</th><td>{quantity(row.on_hand)}</td><td>{quantity(row.available)}</td><td>{quantity(row.reserved)}</td></tr>)}</tbody></table></div> : null}
-      <p className="section-note">On hand, available, and reserved are different measures. Grams and retail units are never added together. Sales velocity and reorder quantities remain in the separate uploaded forecast analysis until their product and unit mappings are verified.</p>
-      {data.items.length ? <div className="table-wrap"><table aria-label="Current buyer packages"><thead><tr><th>Product / SKU</th><th>Package / lot</th><th>Unit</th><th>On hand</th><th>Available</th><th>Reserved</th><th>Location</th><th>Status</th></tr></thead><tbody>{data.items.map(row => <tr key={row.id}><td><Link className="link-button" to={`/inventory/products/${encodeURIComponent(row.product_id)}`}>{row.product_name}</Link><br /><small>{row.sku}</small></td><td><Link className="link-button" to={`/inventory/packages/${encodeURIComponent(row.id)}`}>{row.package_id || row.lot_code}</Link></td><td>{row.unit}</td><td>{quantity(row.on_hand)}</td><td>{quantity(row.available)}</td><td>{quantity(row.reserved)}</td><td>{row.location}</td><td>{row.status}<br /><small>{row.attention}</small></td></tr>)}</tbody></table></div> : <div className="empty">{data.evidence.state === "empty" ? "The authorized inventory read succeeded: this facility has no retail package records." : "No current packages match these filters."}</div>}
+      <p className="section-note">{compact ? "Units stay separate. Uploaded forecasts do not verify current availability." : "On hand, available, and reserved are different measures. Grams and retail units are never added together. Sales velocity and reorder quantities remain in the separate uploaded forecast analysis until their product and unit mappings are verified."}</p>
+      {compact ? <p role="status">{data.summary.held_packages ? `${data.summary.held_packages} held packages need review. Open current inventory to inspect their status before purchasing.` : "No held packages in current inventory. Review uploaded evidence for reorder and expiration decisions."}</p> : <>{data.items.length ? <div className="table-wrap"><table aria-label="Current buyer packages"><thead><tr><th>Product / SKU</th><th>Package / lot</th><th>Unit</th><th>On hand</th><th>Available</th><th>Reserved</th><th>Location</th><th>Status</th></tr></thead><tbody>{data.items.map(row => <tr key={row.id}><td><Link className="link-button" to={`/inventory/products/${encodeURIComponent(row.product_id)}`}>{row.product_name}</Link><br /><small>{row.sku}</small></td><td><Link className="link-button" to={`/inventory/packages/${encodeURIComponent(row.id)}`}>{row.package_id || row.lot_code}</Link></td><td>{row.unit}</td><td>{quantity(row.on_hand)}</td><td>{quantity(row.available)}</td><td>{quantity(row.reserved)}</td><td>{row.location}</td><td>{row.status}<br /><small>{row.attention}</small></td></tr>)}</tbody></table></div> : <div className="empty">{data.evidence.state === "empty" ? "The authorized inventory read succeeded: this facility has no retail package records." : "No current packages match these filters."}</div>}
       <div className="heading-actions"><button className="secondary" type="button" disabled={!offset || stock.isFetching} onClick={() => setOffset(value => Math.max(0, value - 50))}>Previous stock page</button><span>{data.total} matching packages · page {Math.floor(offset / 50) + 1}</span><button className="secondary" type="button" disabled={!data.has_more || stock.isFetching} onClick={() => setOffset(value => value + 50)}>Next stock page</button></div>
+      </>}
       <div className="info-banner"><strong>Separate sales evidence</strong><p>{data.sales_sources.state === "missing" ? "No active sales upload is published. Current stock is still available; zero sales has not been assumed." : data.sales_sources.message}</p>{data.sales_sources.items.map(source => <p key={source.dataset}>{source.filename} · {source.rows} rows · published {new Date(source.published_at).toLocaleString()}</p>)}</div>
     </> : null}
   </section>;

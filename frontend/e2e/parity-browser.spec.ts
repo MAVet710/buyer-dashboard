@@ -155,14 +155,16 @@ for (const width of WIDTHS) {
     await page.goto("/buying?buyerView=forecast", { waitUntil: "domcontentloaded" });
 
     // The recorded upload-based workflow is retained under an explicit historical-source tab.
-    await page.getByRole("tab", { name: "Uploaded forecast analysis", exact: true }).click();
+    await page.getByRole("tab", { name: "Analyze", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Buyer Dashboard" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Sales Trend" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Revenue by Category" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Top Slow Movers" })).toBeVisible();
     await expect(page.getByText("Inventory Health", { exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Forecast Table" })).toBeVisible();
+    await page.getByText("Forecast controls and buyer filters", { exact: true }).click();
     await expect(page.getByRole("heading", { name: /Buyer Filters & Settings/ })).toBeVisible();
+    await page.getByRole("tab", { name: "Act", exact: true }).click();
     await expect(page.getByRole("button", { name: "Generate Doobie Buyer Brief" })).toBeVisible();
     await assertNoDocumentOverflow(page);
     await saveEvidence(page, testInfo, `buyer-${width}`);
