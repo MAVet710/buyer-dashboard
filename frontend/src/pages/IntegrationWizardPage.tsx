@@ -39,7 +39,7 @@ function GuidedFlow({ data, onNavigate, refresh }: { data: WizardData; onNavigat
   const move = useMutation({ mutationFn: (next: Step) => apiPost("/api/v1/integration-wizard/progress", { step: next }), onSuccess: (_, next) => { setStep(next); refresh(); } });
   const index = wizardSteps.indexOf(step);
   const navigateStep = (next: Step) => data.can_manage ? move.mutate(next) : setStep(next);
-  const remaining = data.items.filter(item => !["connected", "optional_skipped", "not_applicable"].includes(item.status));
+  const remaining = data.items.filter(item => item.required && !["connected", "optional_skipped", "not_applicable"].includes(item.status));
   return <>
     <p>{data.facility.name} | License: {data.facility.license_number || "Not recorded"} | {data.mode.effective_mode.replaceAll("_", " ")}</p>
     <nav className="wizard-steps" aria-label="Integration setup steps">{wizardSteps.map((value, position) => <button key={value} className={value === step ? "primary" : "secondary"} aria-current={value === step ? "step" : undefined} disabled={move.isPending} onClick={() => navigateStep(value)}>{position + 1}. {titles[value]}</button>)}</nav>
@@ -50,7 +50,7 @@ function GuidedFlow({ data, onNavigate, refresh }: { data: WizardData; onNavigat
       {step === "validate" && <p>Tests run only when you select Test / Validate. These use the existing provider contracts. A successful test proves connectivity, not production synchronization.</p>}
       {step === "map" && <p>Review trusted facility mappings and accounting Item mappings. The wizard does not synchronize or post business records.</p>}
       {step === "evidence" && <p>Review observed validation times, environment, mapping requirements and blockers. Missing evidence cannot be overridden by progressing through this guide.</p>}
-      {step === "summary" && <><p>{remaining.length} provider setup item(s) still need attention. {data.items.filter(item => item.required && item.status !== "connected").length} required provider(s) remain incomplete.</p><p>Connected means a recorded connection test passed with the setup checks shown here. Go-live acceptance still requires the authoritative Implementation Readiness reviews and operational evidence. Sandbox validation is not production acceptance.</p></>}
+      {step === "summary" && <><p>{remaining.length} required provider setup item(s) still need attention. Optional services do not block facility go-live. {data.items.filter(item => item.required && item.status !== "connected").length} required provider(s) remain incomplete.</p><p>Connected means a recorded connection test passed with the setup checks shown here. Go-live acceptance still requires the authoritative Implementation Readiness reviews and operational evidence. Sandbox validation is not production acceptance.</p></>}
       <div className="report-card-grid">{data.items.map(item => <ProviderEvidence key={item.key} item={item} step={step} canManage={data.can_manage} onNavigate={onNavigate} refresh={refresh} />)}</div>
     </>}
     {move.isError && <p role="alert">Progress was not saved: {move.error.message}</p>}

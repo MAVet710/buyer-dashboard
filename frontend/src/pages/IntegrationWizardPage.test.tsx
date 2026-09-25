@@ -31,6 +31,12 @@ describe("Integration Wizard", () => {
   it("readers have no mutation actions", () => {
     expect(render({ ...data, can_manage: false })).not.toContain("Test / Validate Metrc");
   });
+  it("does not count optional platform services as required blockers", () => {
+    const html = render({ ...data, items: [{ ...data.items[0], key: "spacemail", label: "Spacemail", required: false, status: "blocked" }] });
+    expect(html).toContain("0 required provider setup item(s) still need attention");
+    expect(html).toContain("Optional services do not block facility go-live");
+    expect(html).toContain("Blocked");
+  });
   it("shows optional skip and all final state names honestly", () => {
     for (const [status, label] of Object.entries({ connected: "Connected", needs_validation: "Needs validation", needs_mapping: "Needs mapping", optional_skipped: "Optional skipped", not_applicable: "Not applicable", blocked: "Blocked" })) {
       expect(render({ ...data, items: [{ ...data.items[0], status }] })).toContain(label);

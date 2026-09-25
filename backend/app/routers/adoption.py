@@ -4,16 +4,19 @@ import re
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
-from modules.coman.models import Facility, new_id
+from modules.coman.models import AppUser, Facility, new_id
 from ..auth import RequestContext, get_request_context, require_facility_capability
 from ..config import Settings, get_settings
 from ..database import get_engine
+from ..permissions import require_permission
 from ..services.adoption_models import ReadinessAnnotation, ReportDelivery, ReportSubscription
 from ..services.implementation_readiness import ITEMS, MANUAL_ITEMS, readiness, scope
+from ..schemas.work import WorkCreate
+from ..services.work import WorkService, validate_assignee
 from ..services.integration_wizard import PROVIDERS, wizard
 from ..services.scheduled_reports import REPORT_CAPABILITIES, audit, deliver, next_occurrence, process_due, public
 
@@ -27,8 +30,9 @@ def admin(context: RequestContext = Depends(get_request_context)):
 
 
 class AnnotationInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     notes: str = Field(default="", max_length=4000)
-    owner: str = Field(default="", max_length=160)
+    owner_user_id: str | None = Field(default=None, min_length=1, max_length=36)
     target_date: date | None = None
     manual_status: Literal["complete", "incomplete", "not_applicable", "needs_review"] | None = None
 
@@ -67,7 +71,7 @@ def get_readiness(context: RequestContext = Depends(get_request_context), engine
     result = readiness(engine, context)
     for item in wizard(engine, settings, context)["items"]:
         result["items"].append({**item, "key": "wizard_" + item["key"], "label": item["label"] + " setup",
-            "manual": False, "manual_status": None, "notes": "", "owner": "", "target_date": None})
+            "manual": False, "manual_status": None, "notes": "", "owner_user_id": None, "owner_name": None, "work_item_id": None, "target_date": None})
     return result
 
 
@@ -124,7 +128,11 @@ def annotate(item_key: str, payload: AnnotationInput, context: RequestContext = 
     if payload.manual_status and not payload.notes.strip():
         raise HTTPException(422, "Supporting notes are required for a manual attestation.")
     with Session(engine) as session:
-        row = session.scalar(select(ReadinessAnnotation).where(*scope(ReadinessAnnotation, context), ReadinessAnnotation.item_key == item_key))
+        if not session.scalar(select(Facility.id).where(Facility.id == context.facility_id,
+                Facility.organization_id == context.organization_id).with_for_update()):
+            raise HTTPException(404, "Facility not found in this organization.")
+        validate_assignee(session, context, payload.owner_user_id)
+        row = session.scalar(select(ReadinessAnnotation).where(*scope(ReadinessAnnotation, context), ReadinessAnnotation.item_key == item_key).with_for_update())
         before = public(row) if row else None
         if row is None:
             row = ReadinessAnnotation(id=new_id(), organization_id=context.organization_id, facility_id=context.facility_id, item_key=item_key)
@@ -135,7 +143,38 @@ def annotate(item_key: str, payload: AnnotationInput, context: RequestContext = 
         # JSON-mode payload preserves date values as ISO strings for the audit envelope.
         audit(session, context, row, "readiness_annotation_saved", before=_json_safe(before), after=payload.model_dump(mode="json"))
         session.commit()
-        return public(row)
+        result = public(row)
+        owner = session.get(AppUser, row.owner_user_id) if row.owner_user_id else None
+        result["owner_name"] = (owner.display_name or owner.username) if owner else None
+        return result
+
+
+@router.post("/implementation-readiness/{item_key}/work")
+def create_readiness_work(item_key: str, context: RequestContext = Depends(admin), engine: Engine = Depends(get_engine)):
+    if item_key not in ITEMS:
+        raise HTTPException(404, "Checklist item not found.")
+    with Session(engine) as session, session.begin():
+        # Lock even before the first annotation so simultaneous clicks converge.
+        facility = session.scalar(select(Facility).where(Facility.id == context.facility_id,
+            Facility.organization_id == context.organization_id).with_for_update())
+        if not facility:
+            raise HTTPException(404, "Facility not found in this organization.")
+        row = session.scalar(select(ReadinessAnnotation).where(*scope(ReadinessAnnotation, context),
+            ReadinessAnnotation.item_key == item_key).with_for_update())
+        if row is None:
+            row = ReadinessAnnotation(id=new_id(), organization_id=context.organization_id,
+                facility_id=context.facility_id, item_key=item_key, updated_by=context.user_id)
+            session.add(row)
+        if row.work_item_id:
+            return {"work_item_id": row.work_item_id}
+        session.flush()
+        work = WorkService(engine, context).create(WorkCreate(
+            title=ITEMS[item_key][0], entity_type="implementation_readiness", entity_id=row.id,
+            workspace="Implementation Readiness", route="/settings/implementation#" + item_key,
+            description="Review readiness evidence and follow up in " + ITEMS[item_key][1] + "."), session=session)
+        row.work_item_id = work["id"]
+        audit(session, context, row, "readiness_work_created", after={"work_item_id": work["id"]})
+        return {"work_item_id": work["id"]}
 
 
 def _json_safe(value):
@@ -153,6 +192,7 @@ def subscriptions(context: RequestContext = Depends(admin), engine: Engine = Dep
 
 @router.post("/report-subscriptions")
 def create_subscription(payload: SubscriptionInput, context: RequestContext = Depends(admin), engine: Engine = Depends(get_engine)):
+    require_permission(context, engine, "reports.export")
     require_facility_capability(context, engine, REPORT_CAPABILITIES[payload.report_type])
     now = datetime.now(timezone.utc)
     with Session(engine) as session:

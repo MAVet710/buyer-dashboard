@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from modules.coman.audit import record_audit_event
 from modules.coman.models import new_id
 from ..auth import require_facility_capability
+from ..permissions import require_permission
 from .adoption_models import ReportDelivery, ReportSubscription
 from .implementation_readiness import scope
 from . import spacemail
@@ -103,6 +104,7 @@ def deliver(engine, settings, context, subscription_id, *, request_key=None, tes
     status, detail = "deferred", "Spacemail is unavailable or validation failed. No email was sent."
     sending = False
     try:
+        require_permission(context, engine, "reports.export")
         require_facility_capability(context, engine, REPORT_CAPABILITIES[report_type])
         mail = spacemail.resolve_spacemail_settings(engine, settings)
         if mail.spacemail_is_configured and spacemail.test_spacemail_connection(mail)["ok"]:

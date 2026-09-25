@@ -2,8 +2,8 @@
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0080_onboarding_reporting"
-down_revision = "0079_security_observation"
+revision = "0083_onboarding_reporting"
+down_revision = "0082_white_label_execution"
 branch_labels = None
 depends_on = None
 TABLES = ("facility_readiness_annotations", "report_subscriptions", "report_deliveries")
@@ -19,7 +19,8 @@ def upgrade():
     op.create_table(TABLES[0], *_scope(),
         sa.Column("item_key", sa.String(40), nullable=False),
         sa.Column("notes", sa.Text(), nullable=False),
-        sa.Column("owner", sa.String(160), nullable=False),
+        sa.Column("owner_user_id", sa.String(36), sa.ForeignKey("app_users.id", ondelete="SET NULL")),
+        sa.Column("work_item_id", sa.String(36), sa.ForeignKey("doobie_work_items.id", ondelete="SET NULL")),
         sa.Column("target_date", sa.Date()),
         sa.Column("manual_status", sa.String(24)),
         sa.Column("updated_by", sa.String(36), nullable=False),

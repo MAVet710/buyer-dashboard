@@ -3,6 +3,17 @@
 Implementation Readiness is available from Home and Settings. Automatic evidence is
 read from canonical facility records and is never overwritten by annotations.
 Administrators can record owners, dates, notes, and explicit manual attestations.
+Owner authority is nullable `owner_user_id`, a foreign key to canonical `app_users`.
+Names are display-only batch projections. Selection reuses Work's active,
+same-organization, work-capable facility assignment rules, including existing
+organization admin/DEV authority. A display name is never accepted as an identity.
+Notes, target dates and manual attestations remain readiness metadata.
+
+The explicit Create Doobie Work item action commits a linked Work item, annotation
+reference and audit evidence in one transaction. Repeat clicks reuse the reference.
+Opening the page never creates work. Work alone owns assignee, due date, priority
+and lifecycle; completing Work does not complete readiness evidence. The Work route
+returns to the specific readiness item at `/settings/implementation#<item_key>`.
 Permission review, operating-mode selection, accounting applicability, and workflow
 acceptance require notes. Integration connection validation and successful production
 synchronization are separate from operational workflow acceptance. Sandbox syncs and
@@ -15,10 +26,14 @@ Reports use server defaults and current canonical data, not browser-only scenari
 The recipient list is an explicit administrator-approved disclosure of the report.
 Tests send the same report to the saved recipients with a test subject.
 
-Apply `0080_onboarding_reporting` through the normal migration procedure before
+Apply `0083_onboarding_reporting` after `0082_white_label_execution` through the normal migration procedure before
 using either page. It adds three tables and scoped indexes without rewriting business
 records. PostgreSQL browser roles are revoked and RLS is enabled; the existing runtime
 identity retains server access. A downgrade refuses to discard recorded evidence.
+The wizard adds no separate migration. Creating report subscriptions requires the
+existing `reports.export` permission in addition to admin/DEV and facility capability
+gates. Every delivery rechecks that permission before preparing or sending a report;
+a denied attempt remains visibly failed without contacting Spacemail.
 
 ## Due-run entrypoint
 
@@ -67,12 +82,13 @@ of the coordinated release, not this local commit.
 
 ## Local verification
 
-- 72 focused and broader backend checks passed, including readiness evidence,
+- Integrated candidate: 248 focused and broader backend checks passed, including readiness evidence,
   fixed query count, authorization, concurrent due-run claims, SMTP outcomes,
   report generation compatibility, and migration contracts/rollback preservation.
-- Frontend lint, production build, and all 110 unit tests passed.
-- Mocked Edge browser checks at 1280px and 390px verified readiness form submission,
-  report test payloads and idempotency headers, with no horizontal overflow or
+- Frontend lint, production build, and all 135 unit tests across 28 files passed.
+- Four mocked Edge browser checks at 1280px and 390px verified canonical owner
+  selection, explicit Work creation/navigation, report test payloads and idempotency
+  headers, pause/history persistence, wizard save/resume/skip/failure, with no horizontal overflow or
   browser exceptions. These are local UI checks, not authenticated public acceptance.
 - Live Spacemail delivery, PostgreSQL migration application, and PC release acceptance
   were not performed under this worker's explicit no-deploy scope.

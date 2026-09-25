@@ -10,13 +10,20 @@ Metrc is required when the facility's existing operating mode selects Metrc Sand
 
 Connected requires a recorded successful validation, with the mapping checks shown in the guide. It is not production acceptance. The original Implementation Readiness production synchronization and manual review items remain intact; additional provider setup evidence links back to the wizard. Skips cannot override required providers or attest to validation.
 
+The integrated White Label candidate uses the single migration head
+`0083_onboarding_reporting` after `0082_white_label_execution`. Optional platform
+services may visibly need attention, but do not count in the required-blocker summary
+or become required facility go-live blockers for administrators. Required providers
+come from the explicit facility operating mode; capability gates remain authoritative.
+
 Resume and optional skips use `wizard_progress` and `wizard_<provider>` entries in the existing facility readiness annotation table, with audit events. No credentials or provider configuration are copied into these annotations. No schema migration is needed. The wizard response omits configuration payloads, secret hints and raw provider error strings.
 
 Validation:
 
-- Focused backend suite: 37 passing tests across wizard, onboarding/reporting, native integration security/production and Metrc facility onboarding.
-- Full frontend suite: 114 passing tests across 23 files.
+- Integrated candidate: 248 backend checks passed across readiness, wizard, reports,
+  Work, White Label, CRM, integration/security, migration and source contracts.
+- Full frontend suite: 135 passing tests across 28 files.
 - Frontend lint and production build pass.
-- Chrome fixture acceptance passes at 1280px and 390px, including both entry points, save-and-clear of a synthetic secret, durable resume, optional skip, failed validation, summary and overflow checks. Mobile screenshot reviewed.
+- Four Edge fixture acceptance checks pass at 1280px and 390px, including both entry points, save-and-clear of a synthetic secret, durable resume, optional skip, failed validation, summary, readiness owner/Work actions, scheduled reports and overflow checks. Mobile screenshots reviewed.
 
 Follow-up acceptance: exercise the authenticated workflow against actual configured provider evidence when deployment is separately authorized. Browser acceptance uses isolated mocked provider responses and does not claim live-provider validation or public deployment.

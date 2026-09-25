@@ -12,7 +12,7 @@ describe("facility adoption pages", () => {
   });
   it("renders readiness evidence for readers without edit controls", () => {
     const client = new QueryClient();
-    client.setQueryData(["implementation-readiness"], { can_manage: false, items: [{ key: "inventory", label: "Starting inventory", status: "incomplete", evidence: "No canonical transactions observed", route: "Data & Settings", manual: false, notes: "Opening count pending", owner: "Operations", target_date: null }] });
+    client.setQueryData(["implementation-readiness"], { can_manage: false, items: [{ key: "inventory", label: "Starting inventory", status: "incomplete", evidence: "No canonical transactions observed", route: "Data & Settings", manual: false, notes: "Opening count pending", owner_user_id: "user-one", owner_name: "Operations", work_item_id: null, target_date: null }] });
     const html = renderToStaticMarkup(<QueryClientProvider client={client}><ImplementationReadinessPage onNavigate={() => {}} /></QueryClientProvider>);
     expect(html).toContain("No canonical transactions observed");
     expect(html).toContain("Opening count pending");

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 test.use({ channel: process.env.WIZARD_BROWSER_CHANNEL || undefined });
-const origin = process.env.WIZARD_BROWSER_BASE_URL || "http://127.0.0.1:4174";
+const origin = process.env.WIZARD_BROWSER_BASE_URL || "http://127.0.0.1:4186";
 async function fixture(page: Page) {
   let step = "facility", skipped = false, failed = false, saved = false;
   const writes: string[] = [];

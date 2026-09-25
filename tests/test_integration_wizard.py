@@ -127,6 +127,8 @@ def test_readiness_reuses_wizard_evidence_and_permissions(state):
     state[2]["spacemail"] = None
     assert item(state, "spacemail")["test_path"] is None
     assert "DEV operator" in item(state, "spacemail")["evidence"]
+    for provider in ("spacemail", "ai_runtime", "doobie"):
+        assert item(state, provider)["required"] is False
 
 
 def test_summary_queries_are_bounded(state):

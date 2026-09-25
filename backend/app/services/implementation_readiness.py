@@ -6,6 +6,7 @@ from modules.commerce_storefronts.models import CommerceStorefront
 from modules.integrations.models import IntegrationConfiguration, IntegrationSyncState
 from modules.product_master.models import ProductMasterProfile
 from .adoption_models import ReadinessAnnotation
+from .work import assignee_query
 
 MANUAL_ITEMS = {"permissions", "traceability_mode", "accounting_review", "first_workflow_review"}
 ITEMS = {
@@ -64,6 +65,11 @@ def readiness(engine, context):
             IntegrationSyncState.environment == "production", IntegrationSyncState.status == "succeeded",
             IntegrationSyncState.last_success_at.is_not(None))))
         annotations = {r.item_key: r for r in session.scalars(select(ReadinessAnnotation).where(*scope(ReadinessAnnotation, context)))}
+        owners = {user.id: user.display_name or user.username for user in session.scalars(
+            select(AppUser).where(AppUser.organization_id == context.organization_id,
+                AppUser.id.in_([r.owner_user_id for r in annotations.values() if r.owner_user_id])))}
+        owner_options = [{"id": user.id, "name": user.display_name or user.username}
+            for user in session.scalars(assignee_query(context).order_by(AppUser.display_name, AppUser.id).limit(500))]
         facts = {
             "facility": (configured, "Active organization and named facility with a code."),
             "users": (users, "Active user with an explicit assignment to this facility."),
@@ -92,6 +98,9 @@ def readiness(engine, context):
                 status, evidence = annotation.manual_status, f"Manual attestation by {annotation.updated_by}: {annotation.notes}"
             items.append(dict(key=key, label=label, route=route, status=status, evidence=evidence, manual=key in MANUAL_ITEMS,
                 manual_status=annotation.manual_status if annotation else None,
-                notes=annotation.notes if annotation else "", owner=annotation.owner if annotation else "",
+                notes=annotation.notes if annotation else "",
+                owner_user_id=annotation.owner_user_id if annotation else None,
+                owner_name=owners.get(annotation.owner_user_id) if annotation else None,
+                work_item_id=annotation.work_item_id if annotation else None,
                 target_date=annotation.target_date if annotation else None))
-        return {"items": items, "can_manage": context.role.casefold() in {"admin", "dev"}}
+        return {"items": items, "owner_options": owner_options, "can_manage": context.role.casefold() in {"admin", "dev"}}

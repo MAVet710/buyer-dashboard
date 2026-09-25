@@ -54,7 +54,7 @@ Run the browser checks against an isolated development server on `127.0.0.1:5179
 
 Rebased the completed Work commit `28d0b2b5898226b3c7d3a70a5e0ff229ab118d47` onto the accepted no-schema candidate `6b874bf3bbce82815dc3116e6457b347a51ff0e4`. Git reported no textual conflicts. Reviewed App, AppShell, HomePage, workspace routes, API helpers, Home inbox and backend router registration. Exact global-search routes, Cultivation Wholesale navigation, Buyer Today/Decide/Act/Analyze and expanded security controls remain intact. No stale source-contract markers required changes.
 
-Retained the existing Work role gate. Work's mutation controls and assignee eligibility share that role policy; adding override-aware permissions consistently would require more than a minimal registry entry. No existing role behavior changed. The migration remains the single Alembic head `0080_doobie_work`, with `down_revision = "0079_security_observation"`.
+Retained the existing Work role gate. Work's mutation controls and assignee eligibility share that role policy; adding override-aware permissions consistently would require more than a minimal registry entry. No existing role behavior changed. Work's migration is `0080_doobie_work`, with `down_revision = "0079_security_observation"`. The integrated White Label/onboarding candidate continues through `0081_wholesale_crm`, `0082_white_label_execution`, and the single head `0083_onboarding_reporting`.
 
 Integration validation:
 
