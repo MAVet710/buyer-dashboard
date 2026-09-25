@@ -41,6 +41,7 @@ const PublicStorefrontAgeGate = lazy(() => import("./components/PublicStorefront
 const MarketingHome = lazy(() => import("./pages/MarketingHome").then(module => ({ default: module.MarketingHome })));
 const BetaPartnerPage = lazy(() => import("./pages/BetaPartnerPage").then(module => ({ default: module.BetaPartnerPage })));
 const ConsultingPages = lazy(() => import("./pages/ConsultingPages").then(module => ({ default: module.ConsultingPages })));
+const HelpCenterPage = lazy(() => import("./pages/HelpCenterPage").then(module => ({ default: module.HelpCenterPage })));
 const AdvisoryTools = lazy(() => import("./pages/AdvisoryTools"));
 const CommercePortalPage = lazy(() => import("./pages/CommercePortalPage").then(module => ({ default: module.CommercePortalPage })));
 const StorefrontPage = lazy(() => import("./pages/StorefrontPage").then(module => ({ default: module.StorefrontPage })));
@@ -80,6 +81,7 @@ function SiteMode() {
   if (portalToken) return <CommercePortalPage token={portalToken} />;
   if (storefrontSlug) return <PublicStorefrontAgeGate><StorefrontPage slug={storefrontSlug} /></PublicStorefrontAgeGate>;
   if (marketing) {
+    if (/^\/help(\/|$)/.test(window.location.pathname)) return <HelpCenterPage />;
     if (/^\/(consulting|resources)(\/|$)/.test(window.location.pathname)) return <ConsultingPages />;
     if (/^\/tools\/(operations-score|inventory-health-check)\/?$/.test(window.location.pathname)) return <AdvisoryTools />;
     return betaPage ? <><BetaPartnerPage /><MarketingContactChannels /></> : <MarketingHome />;
