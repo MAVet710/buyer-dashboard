@@ -25,17 +25,19 @@ type Room = { id:string;room_code:string;display_name:string;phase:string;plant_
 type RoomList = { items:Room[] };
 type BulkResult = { count:number;changed_count:number;phase:string|null;room_code:string|null;items:Array<{id:string;plant_tag:string;strain_name:string;phase:PlantPhase;room_code:string}> };
 
-export function PlantInventory() {
+export function PlantInventory({ initialPlantId = "" }: { initialPlantId?: string }) {
   const client = useQueryClient();
   const account = useQuery({ queryKey: ["account-context"], queryFn: ({ signal }) => apiGet<{ user: { role: string } }>("/api/v1/account/context", signal) });
   const canWrite = writeRoles.has(account.data?.user.role ?? "");
   const [search, setSearch] = useState(""); const [phase, setPhase] = useState(""); const [room, setRoom] = useState("");
-  const [creating, setCreating] = useState(false); const [selected, setSelected] = useState<CultivationPlant | null>(null);
+  const [creating, setCreating] = useState(false); const [selectedPlant, setSelected] = useState<CultivationPlant | null | undefined>(undefined);
   const [selectedIds,setSelectedIds]=useState<string[]>([]); const [bulkOpen,setBulkOpen]=useState(false); const [bulkPhase,setBulkPhase]=useState<PlantPhase|"">(""); const [bulkRoom,setBulkRoom]=useState(""); const [bulkReason,setBulkReason]=useState(""); const [bulkNotes,setBulkNotes]=useState(""); const [flash,setFlash]=useState("");
   const overview = useQuery({ queryKey: ["plants-overview"], queryFn: ({ signal }) => apiGet<CultivationPlant[]>("/api/v1/inventory/production/plants", signal) });
   const query = useQuery({ queryKey: ["plants", search, phase, room], queryFn: ({ signal }) => apiGet<CultivationPlant[]>(`/api/v1/inventory/production/plants?${new URLSearchParams({ search, phase, room })}`, signal) });
   const roomsQuery=useQuery({queryKey:["cultivation-rooms"],queryFn:({signal})=>apiGet<RoomList>("/api/v1/inventory/production/plants/rooms",signal)});
   const refresh = () => { void client.invalidateQueries({ queryKey: ["plants"] }); void client.invalidateQueries({ queryKey: ["plants-overview"] }); void client.invalidateQueries({ queryKey:["cultivation-rooms"] }); void client.invalidateQueries({ queryKey: ["cultivation-intelligence"] }); };
+  const focusedPlant = overview.data?.find(plant => plant.id === initialPlantId);
+  const selected = selectedPlant === undefined ? focusedPlant ?? null : selectedPlant;
   const rooms = [...new Set((overview.data ?? query.data ?? []).map(plant => plant.room_code))];
   const visibleIds=(query.data??[]).map(plant=>plant.id);
   const allVisibleSelected=Boolean(visibleIds.length)&&visibleIds.every(id=>selectedIds.includes(id));
@@ -45,6 +47,7 @@ export function PlantInventory() {
   const clearSelection=()=>setSelectedIds([]);
   const bulkMutation=useMutation({mutationFn:()=>apiPost<BulkResult>("/api/v1/inventory/production/plants/bulk-transition",{plant_ids:selectedIds,phase:bulkPhase||null,room_code:bulkRoom||null,reason:bulkReason,notes:bulkNotes}),onSuccess:result=>{setFlash(`${result.changed_count} of ${result.count} selected plant(s) updated atomically.`);setBulkOpen(false);setBulkPhase("");setBulkRoom("");setBulkReason("");setBulkNotes("");clearSelection();refresh();}});
   return <>
+    {initialPlantId && overview.isSuccess && !focusedPlant ? <div className="info-banner">The requested plant is not available in the active facility.</div> : null}
     {flash?<div className="success-banner">{flash}</div>:null}
     {overview.data ? <CultivationToday plants={overview.data} onSelect={setSelected} /> : null}
     {overview.data ? <CultivationBatchManager plants={overview.data} canWrite={canWrite} onChanged={refresh} /> : null}

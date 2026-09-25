@@ -140,7 +140,7 @@ def test_production_inventory_and_cultivation_ops_preserve_material_and_plant_co
     )
     has(
         "frontend/src/pages/CultivationOpsPage.tsx",
-        'CULTIVATION OPS', '<PlantInventory />',
+        'CULTIVATION OPS', '<PlantInventory initialPlantId={initialPlantId} />',
     )
     has(
         "frontend/src/components/PlantInventory.tsx",

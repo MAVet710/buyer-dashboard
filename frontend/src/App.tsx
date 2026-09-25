@@ -63,6 +63,7 @@ export default function App() {
   const [run360OrderId, setRun360OrderId] = useState("");
   const page = pageForPath(location.pathname);
   const entity = entityContextForPath(location.pathname);
+  const focus = new URLSearchParams(location.search);
   const productId = entity?.kind === "product" ? entity.id : "";
   const packageCode = entity?.kind === "package" ? entity.id : "";
   const productionRunId = entity?.kind === "production-run" ? entity.id : "";
@@ -86,13 +87,13 @@ export default function App() {
   useEffect(() => {
     const pending = sessionStorage.getItem("buyer-dash-pending-page");
     if (pending) {
-      const pendingPath = pathForPage(pending);
-      if (pendingPath === location.pathname) sessionStorage.removeItem("buyer-dash-pending-page");
+      const pendingPath = pending.startsWith("/") && pageForPath(pending) ? pending : pathForPage(pending);
+      if (pendingPath === location.pathname + location.search) sessionStorage.removeItem("buyer-dash-pending-page");
       else routerNavigate(pendingPath, { replace: true });
       return;
     }
     if (location.pathname === "/") routerNavigate("/home", { replace: true });
-  }, [location.pathname, routerNavigate]);
+  }, [location.pathname, location.search, routerNavigate]);
   useEffect(() => {
     const refreshForDataMode = () => { void client.invalidateQueries(); };
     window.addEventListener("buyer-dash-data-mode", refreshForDataMode);
@@ -103,12 +104,12 @@ export default function App() {
     : page === "Buyer Operations" || page === "Purchasing" ? <BuyerCommandCenterPage onNavigate={setPage} />
     : page === "Inventory" ? <InventoryPage initialOperation="retail" onNavigate={navigate} />
     : page === "Retail Inventory Transfers" ? <InventoryTransfersPage operation="retail" />
-    : page === "Cultivation" ? <CultivationOpsPage onNavigate={navigate} />
+    : page === "Cultivation" ? <CultivationOpsPage key={focus.get("plant") || "grow"} initialPlantId={focus.get("plant") || ""} onNavigate={navigate} />
     : page === "Post-Harvest" ? <PostHarvestPage />
     : page === "Production Inventory" ? <InventoryPage initialOperation="production" onNavigate={navigate} />
     : page === "Production Inventory Transfers" ? <InventoryTransfersPage operation="production" />
     : page === "Inventory Audits" ? <FocusedInventoryAudits />
-    : page === "Package 360" ? <Package360Page onNavigate={navigate} initialCode={packageCode} />
+    : page === "Package 360" ? <Package360Page key={packageCode || "package-picker"} onNavigate={navigate} initialCode={packageCode} />
     : page === "Sales & Category Trends" ? <BuyerTrendsPage />
     : page === "Slow Movers" ? <SlowMoversPage />
     : page === "Delivery Performance" ? <DeliveryImpactPage />
@@ -127,7 +128,7 @@ export default function App() {
     : page === "Extraction" ? <ExtractionUnifiedPage onNavigate={navigate} />
     : page === "White Label / Repack" ? <WhiteLabelRepackPage />
     : page === "Package Studio" ? <PackageStudioPage />
-    : page === "Orders" ? <OrdersPage />
+    : page === "Orders" ? <OrdersPage key={location.search} initialOrderId={focus.get("order") || ""} initialPartnerId={focus.get("partner") || ""} />
     : page === "Warehouse Pick Pack" ? <WarehousePickPackPage onNavigate={navigate} />
     : page === "Compliance" ? <CompliancePage />
     : page === "Traceability Actions" ? <TraceabilityActionsPage onNavigate={navigate} />

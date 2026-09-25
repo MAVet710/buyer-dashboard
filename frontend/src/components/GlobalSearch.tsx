@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import { useMemo, useState } from "react";
+import { pageForPath, pathForSearchResult } from "../lib/workspaceRoutes";
 import { apiGet } from "../lib/api";
 import { Product360Drawer } from "./Product360Drawer";
 
@@ -48,7 +49,7 @@ export function GlobalSearch({ onNavigate }: { onNavigate: (page: string) => voi
   }, [query, remote.data]);
   const choose = (row: SearchResult) => {
     if (row.kind === "product") setProductId(row.id);
-    else onNavigate(row.workspace);
+    else onNavigate(row.kind === "tool" ? row.workspace : pathForSearchResult(row));
     setQuery("");
   };
 
@@ -57,7 +58,7 @@ export function GlobalSearch({ onNavigate }: { onNavigate: (page: string) => voi
       <label className="home-search"><Search size={19}/><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search products, packages, plants, orders, partners, or tools…" aria-label="Search DoobieLogic"/></label>
       {query.trim().length >= 2 ? <div className="global-search-results">
         {remote.isLoading ? <div className="state">Searching active facility…</div> : null}
-        {results.map(row => <button key={`${row.kind}-${row.id}`} type="button" onClick={() => choose(row)}><span className="badge">{row.kind}</span><strong>{row.title}</strong><em>{row.kind === "product" ? "Product 360 →" : `${row.workspace} →`}</em><small>{row.subtitle}</small></button>)}
+        {results.map(row => <button key={`${row.kind}-${row.id}`} type="button" onClick={() => choose(row)}><span className="badge">{row.kind}</span><strong>{row.title}</strong><em>{row.kind === "product" ? "Product 360 →" : `${pageForPath(pathForSearchResult(row)) ?? row.workspace} →`}</em><small>{row.subtitle}</small></button>)}
         {!remote.isLoading && results.length === 0 ? <div className="empty">No matching records or tools.</div> : null}
       </div> : null}
     </div>
