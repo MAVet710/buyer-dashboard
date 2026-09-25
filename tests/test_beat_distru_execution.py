@@ -15,6 +15,7 @@ from backend.app.routers.warehouse import PickAction, pick_action, pick_queue
 from modules.coman.models import Base, InventoryLot
 from modules.coman.repository import ComanRepository
 from modules.commercial.repository import CommercialRepository
+from modules.commercial_finance.service import CommercialFinanceService
 from modules.production_erp.service import ProductionERPService
 
 
@@ -65,6 +66,7 @@ def test_mobile_pick_queue_prefers_earliest_expiration_and_wrong_scan_cannot_mut
 
     queue = pick_queue(context, engine)
     assert queue["queue"][0]["recommended_lot"]["id"] == sooner.id
+    assert queue["queue"][0]["manifest_ready"] is False
     before = coman.inventory_balance(organization.id, sooner.id)
     with pytest.raises(HTTPException) as exc:
         pick_action(PickAction(order_line_id=line.id, lot_id=sooner.id, quantity=2, scan_code="WRONG", action="reserve"), context, engine)
@@ -73,6 +75,31 @@ def test_mobile_pick_queue_prefers_earliest_expiration_and_wrong_scan_cannot_mut
 
     reserved = pick_action(PickAction(order_line_id=line.id, lot_id=sooner.id, quantity=2, scan_code="PKG-SOONER", action="reserve"), context, engine)
     assert reserved["action"] == "reserved"
+    with pytest.raises(HTTPException) as manifest_block:
+        pick_action(PickAction(order_line_id=line.id, lot_id=sooner.id, quantity=2, scan_code="BAR-SOONER", action="ship", reference="SO-PICK"), context, engine)
+    assert manifest_block.value.status_code == 422
+    assert "manifested shipment" in str(manifest_block.value.detail)
+    assert coman.inventory_balance(organization.id, sooner.id) == before
+
+    finance = CommercialFinanceService(engine)
+    shipment = finance.create_shipment(
+        organization_id=organization.id,
+        facility_id=facility.id,
+        order_id=order.id,
+        shipment_number="SHP-SO-PICK",
+        actor="dev",
+        manifest_reference="MANIFEST-SO-PICK",
+    )
+    finance.update_shipment_status(
+        organization_id=organization.id,
+        facility_id=facility.id,
+        shipment_id=shipment.id,
+        status="manifested",
+    )
+    queue = pick_queue(context, engine)
+    assert queue["queue"][0]["manifest_ready"] is True
+    assert queue["queue"][0]["manifest_reference"] == "MANIFEST-SO-PICK"
+
     shipped = pick_action(PickAction(order_line_id=line.id, lot_id=sooner.id, quantity=2, scan_code="BAR-SOONER", action="ship", reference="SO-PICK"), context, engine)
     assert shipped["quantity_delta"] == -2
     assert coman.inventory_balance(organization.id, sooner.id) == before - 2

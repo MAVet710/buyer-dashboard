@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from modules.coman.audit import record_audit_event
 from modules.coman.models import InventoryLot, Product
 from modules.commercial.repository import CommercialRepository
+from modules.commercial_finance.models import CommercialShipment
 from modules.hardware_capture_provenance import IdentifierCaptureProvenance
 from modules.inventory_availability.service import InventoryAvailabilityService
 from ..auth import RequestContext, get_commercial_context, get_request_context
@@ -74,10 +75,27 @@ def pick_queue(context: RequestContext = Depends(get_request_context), engine: E
     order_by_id = {row.id: row for row in orders}
     with Session(engine) as session:
         products = {row.id: row for row in session.scalars(select(Product).where(Product.organization_id == context.organization_id))}
+        shipments = list(session.scalars(select(CommercialShipment).where(
+            CommercialShipment.organization_id == context.organization_id,
+            CommercialShipment.facility_id == context.facility_id,
+            CommercialShipment.commercial_order_id.in_(order_ids),
+        ))) if order_ids else []
+        latest_by_order = {}
+        manifested_by_order = {}
+        for shipment in sorted(shipments, key=lambda row: row.created_at or datetime.min, reverse=True):
+            latest_by_order.setdefault(shipment.commercial_order_id, shipment)
+            if (
+                shipment.commercial_order_id not in manifested_by_order
+                and str(shipment.status or "").casefold() in {"manifested", "shipped", "delivered"}
+                and str(shipment.manifest_reference or "").strip()
+            ):
+                manifested_by_order[shipment.commercial_order_id] = shipment
         queue = []
         for line in sorted(lines, key=lambda row: (_sortable_time(order_by_id[row.commercial_order_id].due_at), order_by_id[row.commercial_order_id].order_number, row.position)):
             order = order_by_id[line.commercial_order_id]
             lots = _available_lots(session, context, line.product_id)
+            latest_shipment = latest_by_order.get(order.id)
+            manifested = manifested_by_order.get(order.id)
             queue.append({
                 "order_id": order.id,
                 "order_number": order.order_number,
@@ -92,6 +110,11 @@ def pick_queue(context: RequestContext = Depends(get_request_context), engine: E
                 "ordered": float(line.quantity),
                 "fulfilled": float(line.fulfilled_quantity),
                 "remaining": max(0.0, float(line.quantity) - float(line.fulfilled_quantity)),
+                "shipment_id": str(getattr(latest_shipment, "id", "") or ""),
+                "shipment_number": str(getattr(latest_shipment, "shipment_number", "") or ""),
+                "manifest_ready": bool(manifested),
+                "manifest_reference": str(getattr(latest_shipment, "manifest_reference", "") or ""),
+                "shipment_status": str(getattr(latest_shipment, "status", "") or ""),
                 "recommended_lot": lots[0] if lots else None,
                 "available_lots": lots,
             })

@@ -22,6 +22,7 @@ from modules.coman.models import (
     TradePartner,
     utc_now,
 )
+from modules.commercial_finance.models import CommercialShipment
 from modules.inventory_availability.service import InventoryAvailabilityService
 
 
@@ -265,6 +266,8 @@ class CommercialRepository:
             lot = session.get(InventoryLot, lot_id)
             if not lot or lot.organization_id != organization_id or lot.facility_id != facility_id or lot.product_id != line.product_id:
                 raise ValueError("The selected lot does not match this order line.")
+            if order.order_type == "sales" and str(lot.status or "").casefold() not in {"available", "released"}:
+                raise ValueError("The selected sales lot is no longer released for shipment. Resolve the QA or inventory hold before fulfillment.")
             if fulfilled > line.quantity - line.fulfilled_quantity + 1e-9:
                 raise ValueError("Fulfillment exceeds the remaining order-line quantity.")
             allocation = None
@@ -276,6 +279,20 @@ class CommercialRepository:
                 ))
                 if allocation is None or fulfilled > allocation.quantity - allocation.fulfilled_quantity + 1e-9:
                     raise ValueError("Sales fulfillment requires enough reserved lot quantity.")
+                if str(lot.compliance_package_id or "").strip():
+                    manifested_shipment = session.scalar(
+                        select(CommercialShipment)
+                        .where(
+                            CommercialShipment.organization_id == organization_id,
+                            CommercialShipment.facility_id == facility_id,
+                            CommercialShipment.commercial_order_id == order.id,
+                            CommercialShipment.status.in_(("manifested", "shipped", "delivered")),
+                            func.length(func.trim(CommercialShipment.manifest_reference)) > 0,
+                        )
+                        .order_by(CommercialShipment.created_at.desc())
+                    )
+                    if manifested_shipment is None:
+                        raise ValueError("Regulated package inventory requires a manifested shipment with a manifest reference before fulfillment.")
                 if fulfilled > self._lot_balance(session, organization_id, lot.id) + 1e-9:
                     raise ValueError("Shipment would make lot inventory negative.")
             delta = fulfilled if order.order_type == "purchase" else -fulfilled
@@ -304,6 +321,21 @@ class CommercialRepository:
             any_fulfilled = any(item.fulfilled_quantity > 0 for item in order_lines)
             order.status = "fulfilled" if all_fulfilled else "partially_fulfilled" if any_fulfilled else order.status
             order.updated_by = actor
+            if order.order_type == "sales" and all_fulfilled:
+                shipment = session.scalar(
+                    select(CommercialShipment)
+                    .where(
+                        CommercialShipment.organization_id == organization_id,
+                        CommercialShipment.facility_id == facility_id,
+                        CommercialShipment.commercial_order_id == order.id,
+                        CommercialShipment.status == "manifested",
+                    )
+                    .order_by(CommercialShipment.created_at.desc())
+                )
+                if shipment is not None:
+                    shipment.status = "shipped"
+                    if shipment.shipped_at is None:
+                        shipment.shipped_at = utc_now()
             self._audit(session, organization_id, facility_id, "commercial_order", order.id, "fulfillment_posted", actor, {"line_id": line.id, "lot_id": lot.id, "quantity": fulfilled, "transaction_type": transaction_type, "reference": transaction.reference})
             return transaction
 

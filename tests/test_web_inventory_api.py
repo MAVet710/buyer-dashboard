@@ -572,6 +572,12 @@ def test_commercial_orders_are_tenant_safe_and_actionable():
         detail = client.get("/api/v1/commercial/orders/sales-1", headers=headers)
         confirmed = client.post("/api/v1/commercial/orders/sales-1/actions/confirm", headers=headers, json={})
         payment_status = client.post("/api/v1/commercial/orders/sales-1/payment", headers=headers, json={"payment_status": "sent"})
+        premature_invoice = client.post("/api/v1/commercial/orders/sales-1/invoices", headers=headers, json={"invoice_number": "INV-100-PREMATURE", "due_days": 30})
+        with Session(engine) as session:
+            persisted_order = session.get(CommercialOrder, "sales-1")
+            assert persisted_order is not None
+            persisted_order.status = "fulfilled"
+            session.commit()
         invoiced = client.post("/api/v1/commercial/orders/sales-1/invoices", headers=headers, json={"invoice_number": "INV-100", "due_days": 30})
         invoice_id = invoiced.json()["id"]
         sent = client.post(f"/api/v1/commercial/invoices/{invoice_id}/send", headers=headers, json={})
@@ -595,6 +601,8 @@ def test_commercial_orders_are_tenant_safe_and_actionable():
     assert detail.json()["lines"][0]["position"] == 1
     assert confirmed.json()["status"] == "confirmed"
     assert payment_status.json()["payment_status"] == "sent"
+    assert premature_invoice.status_code == 422
+    assert "fulfillment" in premature_invoice.json()["detail"].casefold()
     assert invoiced.json()["total_usd"] == 100
     assert sent.json()["status"] == "sent"
     assert paid.json()["amount_usd"] == 40
