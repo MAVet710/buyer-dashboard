@@ -38,7 +38,8 @@ def test_storefront_studio_preview_matches_public_partnership_and_process_layers
     for token in (
         "studio-preview-partnership",
         "WHOLESALE PARTNERSHIP",
-        "Live inventory. Batch proof. Direct ordering.",
+        "studio.partnership_heading",
+        "studio.partnership_body",
         "studio-preview-process",
         "Catalog → request → approval → fulfillment",
     ):

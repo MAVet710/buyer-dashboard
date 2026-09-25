@@ -38,6 +38,8 @@ def test_studio_draft_is_private_until_explicit_publish_and_core_lab_stats_canno
     initial = studio.snapshot(organization.id, facility.id)
     assert initial["draft_dirty"] is False
     assert initial["published"]["theme_preset"] == "clean"
+    assert initial["published"]["show_partnership"] is True
+    assert initial["published"]["section_order"][:2] == ["hero", "partnership"]
 
     draft = dict(initial["draft"])
     draft.update(
@@ -119,6 +121,24 @@ def test_studio_assets_are_tenant_scoped_signature_checked_and_public_only_when_
         )
 
 
+def test_studio_upgrades_legacy_section_order_and_preserves_partnership_copy():
+    _, _, organization, facility, _, studio = _setup()
+    draft = studio.snapshot(organization.id, facility.id)["draft"]
+    draft["section_order"] = ["hero", "featured", "catalog", "about", "contact"]
+    draft["partnership_heading"] = "Why retailers partner with us"
+    draft["partnership_body"] = "Fresh drops, verified batches, and direct wholesale support."
+
+    saved = studio.save_draft(
+        organization_id=organization.id,
+        facility_id=facility.id,
+        actor="admin",
+        design=draft,
+    )
+    assert saved["draft"]["section_order"][:2] == ["hero", "partnership"]
+    assert saved["draft"]["partnership_heading"] == "Why retailers partner with us"
+    assert saved["draft"]["partnership_body"] == "Fresh drops, verified batches, and direct wholesale support."
+
+
 def test_studio_rejects_arbitrary_layout_and_asset_references():
     engine, _, organization, facility, _, studio = _setup()
     draft = studio.snapshot(organization.id, facility.id)["draft"]
@@ -151,11 +171,16 @@ def test_storefront_studio_frontend_and_router_contracts_are_present():
         "Card style",
         "Brand assets",
         "Page sections",
+        "Retail partnership",
+        "Partnership heading",
+        "Partnership copy",
         "Product card fields",
     ):
         assert token in manager
-    for token in ("studio.section_order", "studio.theme_preset", "studio.card_style", "studio.visible_stats", "studio.announcement_enabled", "favicon_asset_path"):
+    for token in ("studio.section_order", "studio.theme_preset", "studio.card_style", "studio.visible_stats", "studio.announcement_enabled", "studio.show_partnership", "studio.partnership_heading", "favicon_asset_path"):
         assert token in page
+    assert "WholesalePartnerSection" in page
+    assert "wholesale-partners" in page
     for route in ('@router.get("/studio")', '@router.post("/studio")', '@router.post("/studio/publish")', '@router.post("/studio/assets")', '@public_router.get("/{slug}/assets/{asset_id}")'):
         assert route in router
     assert ".storefront-studio-preview.desktop" in css

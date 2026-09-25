@@ -3,6 +3,8 @@ import "../wholesale-website.css";
 type PartnerProps = {
   displayName: string;
   description?: string;
+  heading?: string;
+  body?: string;
   listedCount: number;
   orderableCount: number;
   coaBackedCount: number;
@@ -13,19 +15,23 @@ type PartnerProps = {
 export function WholesalePartnerSection({
   displayName,
   description,
+  heading,
+  body,
   listedCount,
   orderableCount,
   coaBackedCount,
   volumePricedCount,
   cowboy = false,
 }: PartnerProps) {
-  const summary = description?.trim() ||
+  const defaultSummary = description?.trim() ||
     `A direct wholesale relationship with live availability, batch transparency, and a clear path from request to fulfillment.`;
+  const resolvedHeading = heading?.trim() || `Built for buyers who want a dependable ${displayName} relationship.`;
+  const resolvedBody = body?.trim() || defaultSummary;
   return <section id="wholesale-partners" className={`wholesale-partner-section${cowboy ? " cowboy-partner-section" : ""}`}>
     <div className="wholesale-site-heading">
       <span>WHOLESALE PARTNERSHIP</span>
-      <h2>Built for buyers who want a dependable {displayName} relationship.</h2>
-      <p>{summary}</p>
+      <h2>{resolvedHeading}</h2>
+      <p>{resolvedBody}</p>
     </div>
     <div className="wholesale-proof-grid">
       <article>

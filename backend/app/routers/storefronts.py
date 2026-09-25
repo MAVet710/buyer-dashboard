@@ -67,13 +67,16 @@ class StudioDesignPayload(BaseModel):
     announcement_enabled: bool = False
     announcement_text: str = Field(default="", max_length=240)
     show_hero: bool = True
+    show_partnership: bool = True
+    partnership_heading: str = Field(default="Built for long-term retail partners", max_length=160)
+    partnership_body: str = Field(default="Browse live wholesale availability, compare verified batches, and submit an order request without losing the human sales relationship.", max_length=3000)
     show_featured: bool = True
     show_about: bool = False
     about_heading: str = Field(default="Brand story", max_length=120)
     about_body: str = Field(default="", max_length=4000)
     show_contact: bool = True
     show_footer: bool = True
-    section_order: list[str] = Field(default_factory=lambda: ["hero", "featured", "catalog", "about", "contact"], max_length=5)
+    section_order: list[str] = Field(default_factory=lambda: ["hero", "partnership", "featured", "catalog", "about", "contact"], max_length=6)
     visible_stats: list[str] = Field(default_factory=lambda: ["thca", "tac", "terpenes", "batch", "coa", "harvest_date", "available"], max_length=16)
     badges: list[str] = Field(default_factory=lambda: ["featured", "new_drop", "limited"], max_length=8)
     logo_asset_id: str = Field(default="", max_length=36)
