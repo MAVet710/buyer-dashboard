@@ -6,8 +6,8 @@ no access; the existing server runtime uses the same tenant claims as cultivatio
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0080_cultivation_telemetry"
-down_revision = "0079_security_observation"
+revision = "0085_cultivation_telemetry"
+down_revision = "0084_wholesale_logistics"
 branch_labels = None
 depends_on = None
 

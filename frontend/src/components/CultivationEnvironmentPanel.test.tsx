@@ -28,4 +28,19 @@ describe("cultivation environment evidence", () => {
     expect(html).toContain("No valid readings");
     expect(html).toContain("Not configured");
   });
+
+  it("focuses exact exceptions and exposes canonical Work handoffs", () => {
+    const exception = { ...reading, exception_id: "cultivation-telemetry:v1:abc" };
+    const createHtml = renderToStaticMarkup(<EnvironmentTable readings={[exception]} canWrite initialExceptionId={exception.exception_id} />);
+    expect(createHtml).toContain("Focused exception");
+    expect(createHtml).toContain("Create Doobie Work");
+
+    const linkedHtml = renderToStaticMarkup(<EnvironmentTable readings={[{ ...exception, work_item_id: "work-1" }]} canWrite />);
+    expect(linkedHtml).toContain("Open Work");
+    expect(linkedHtml).toContain("/work?item=work-1");
+
+    const viewerHtml = renderToStaticMarkup(<EnvironmentTable readings={[exception]} canWrite={false} />);
+    expect(viewerHtml).toContain("Review required");
+    expect(viewerHtml).not.toContain("Create Doobie Work");
+  });
 });

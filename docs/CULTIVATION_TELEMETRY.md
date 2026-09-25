@@ -143,7 +143,7 @@ hardening intentionally leaves migration identity and DDL unchanged.
 
 ## Migration and validation
 
-`0080_cultivation_telemetry` follows `0079_security_observation`. It adds two tables
+`0085_cultivation_telemetry` follows `0079_security_observation`. It adds two tables
 and a composite room uniqueness constraint used by scoped foreign keys. It does not
 rewrite operational records. PostgreSQL RLS is enabled and browser/public grants
 revoked. The existing server runtime receives SELECT/INSERT for observations and

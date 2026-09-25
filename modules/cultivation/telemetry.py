@@ -2,6 +2,7 @@
 
 No adapter credentials, provider calls, equipment commands, or irrigation writes.
 """
+from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -13,7 +14,7 @@ from sqlalchemy import func, select, tuple_
 from sqlalchemy.orm import Session
 
 from modules.coman.audit import record_audit_event
-from modules.coman.models import Facility, new_id
+from modules.coman.models import Facility, WorkItem, new_id
 from .models import CultivationRoom
 from .telemetry_models import EnvironmentalObservation as Observation, EnvironmentalTarget as Target
 
@@ -176,9 +177,9 @@ class TelemetryService:
                 entity_id=room_id, action="environment_target_set", actor=actor, before=before, after=payload.model_dump())
         return payload.model_dump()
 
-    def snapshot(self, organization_id, facility_id, room_id, *, now=None):
+    def snapshot(self, organization_id, facility_id, room_id, *, now=None, session=None):
         now = utc(now or datetime.now(timezone.utc))
-        with Session(self.engine) as session:
+        with (nullcontext(session) if session is not None else Session(self.engine)) as session:
             room = self.room(session, organization_id, facility_id, room_id)
             targets = {r.metric: r for r in session.scalars(select(Target).where(*self.scope(Target, organization_id, facility_id, room_id)))}
             scope = self.scope(Observation, organization_id, facility_id, room_id)
@@ -227,10 +228,23 @@ class TelemetryService:
             exceptions = [r for r in rows if r["states"] != ["current"] and (r["states"] != ["missing"] or r["target"])]
             for row in exceptions:
                 row["exception_id"] = exception_identity(organization_id, facility_id, room_id, row)
+            if exceptions:
+                exception_ids = [row["exception_id"] for row in exceptions]
+                work_rows = session.scalars(select(WorkItem).where(
+                    WorkItem.organization_id == organization_id,
+                    WorkItem.facility_id == facility_id,
+                    WorkItem.entity_type == "cultivation_telemetry_exception",
+                    WorkItem.entity_id.in_(exception_ids),
+                ).order_by(WorkItem.created_at, WorkItem.id).limit(201)).all()
+                work_by_exception = {}
+                for work in work_rows:
+                    work_by_exception.setdefault(work.entity_id, work.id)
+                for row in exceptions:
+                    row["work_item_id"] = work_by_exception.get(row["exception_id"])
             return {"room_id": room.id, "room_code": room.room_code, "as_of": now.isoformat(), "readings": rows,
                 "exceptions": exceptions, "truncated": len(latest) > 200, "decision_support_only": True}
 
-    def prepare_work_item(self, organization_id, facility_id, room_id, exception_id, *, actor, now=None):
+    def prepare_work_item(self, organization_id, facility_id, room_id, exception_id, *, actor, now=None, session=None):
         """Resolve an explicitly selected exception to a draft, never create a task.
 
         Final-rebase API must authorize cultivation AND Work creation, then pass this
@@ -239,7 +253,7 @@ class TelemetryService:
         """
         if not actor or not actor.strip():
             raise ValueError("An authenticated operator is required.")
-        snapshot = self.snapshot(organization_id, facility_id, room_id, now=now)
+        snapshot = self.snapshot(organization_id, facility_id, room_id, now=now, session=session)
         row = next((r for r in snapshot["exceptions"] if r["exception_id"] == exception_id), None)
         if row is None:
             raise TelemetryConflict("Exception is no longer current or is outside the visible summary; refresh before creating Work.")

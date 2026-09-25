@@ -72,7 +72,9 @@ it("wires exact plant focus and remounts entity state when browser URLs change",
   const app = readFileSync(new URL("../App.tsx", import.meta.url), "utf8");
   const plant = readFileSync(new URL("./PlantInventory.tsx", import.meta.url), "utf8");
   expect(app).toContain('key={packageCode || "package-picker"}');
-  expect(app).toContain('key={focus.get("plant") || "grow"}');
+  expect(app).toContain('key={[focus.get("plant"), focus.get("room"), focus.get("telemetry")].filter(Boolean).join(":") || "grow"}');
+  expect(app).toContain('initialRoomId={focus.get("room") || ""}');
+  expect(app).toContain('initialTelemetryId={focus.get("telemetry") || ""}');
   expect(app).toContain('<OrdersPage key={location.search}');
   expect(app).toContain('pendingPath === location.pathname + location.search');
   expect(plant).toContain('overview.data?.find(plant => plant.id === initialPlantId)');

@@ -2,11 +2,12 @@ from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor
 import importlib
 from pathlib import Path
+from urllib.parse import quote
 
 import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from sqlalchemy import create_engine, event, func, select, text
@@ -17,7 +18,8 @@ from sqlalchemy.pool import StaticPool
 from backend.app.auth import RequestContext, get_request_context
 from backend.app.database import get_engine
 from backend.app.routers.cultivation_telemetry import router
-from modules.coman.models import AuditEvent, Base, Facility, Organization
+from modules.coman.models import AppUser, AuditEvent, Base, Facility, Organization, WorkItem
+from modules.coman.permissions import AppUserPermissionOverride
 from modules.cultivation.models import CultivationRoom
 from modules.cultivation.telemetry import Reading, TargetInput, TelemetryConflict, TelemetryService
 from modules.cultivation.telemetry_models import EnvironmentalObservation as Observation
@@ -218,7 +220,7 @@ def test_api_contract_scope_roles_and_conflict(setup):
 
 @pytest.mark.parametrize("populated", ["targets", "observations"])
 def test_migration_roundtrip_and_evidence_preservation(populated):
-    migration = importlib.import_module("migrations.versions.0080_cultivation_telemetry")
+    migration = importlib.import_module("migrations.versions.0085_cultivation_telemetry")
     engine = create_engine("sqlite://")
     with engine.begin() as conn:
         conn.execute(text("CREATE TABLE cultivation_rooms (id VARCHAR(36) PRIMARY KEY, organization_id VARCHAR(36) NOT NULL, facility_id VARCHAR(36) NOT NULL)"))
@@ -356,7 +358,7 @@ def test_write_authorization_hook_retains_role_and_capability_gates(setup, role,
 def test_postgresql_acl_contract(monkeypatch):
     from contextlib import contextmanager
     from types import SimpleNamespace
-    migration = importlib.import_module("migrations.versions.0080_cultivation_telemetry")
+    migration = importlib.import_module("migrations.versions.0085_cultivation_telemetry")
     statements = []
     @contextmanager
     def batch(*args):
@@ -388,7 +390,158 @@ def test_telemetry_exposes_no_provider_or_equipment_path():
         ("/inventory/production/plants/telemetry/rooms/{room_id}", ("GET",)),
         ("/inventory/production/plants/telemetry/rooms/{room_id}/target", ("POST",)),
         ("/inventory/production/plants/telemetry/rooms/{room_id}/observations", ("POST",)),
+        ("/inventory/production/plants/telemetry/rooms/{room_id}/exceptions/{exception_id}/work", ("POST",)),
     }
     for field in ("credentials", "equipment_command", "irrigation_command", "vendor_api_key"):
         with pytest.raises(ValidationError):
             Reading(**reading(**{field: "not-accepted"}))
+
+
+def _telemetry_client(engine, context):
+    app = FastAPI()
+    app.include_router(router, prefix="/api/v1")
+    app.dependency_overrides[get_request_context] = lambda: context
+    app.dependency_overrides[get_engine] = lambda: engine
+    return TestClient(app)
+
+
+def _fresh_exception(client, *, quality="suspect", event_id="work-exception"):
+    path = "/api/v1/inventory/production/plants/telemetry/rooms/r1"
+    observed = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+    body = {"observations": [reading(event_id=event_id, quality=quality, observed_at=observed)]}
+    response = client.post(path + "/observations", json=body)
+    assert response.status_code == 200, response.text
+    snapshot = client.get(path)
+    assert snapshot.status_code == 200, snapshot.text
+    exception = next(row for row in snapshot.json()["exceptions"] if row["event_id"] == event_id)
+    return path, exception
+
+
+def test_current_exception_creates_one_canonical_work_and_snapshot_links_it(setup):
+    engine, _ = setup
+    context = RequestContext("tester", "o1", "f1", "operator")
+    client = _telemetry_client(engine, context)
+    path, exception = _fresh_exception(client)
+    endpoint = f"{path}/exceptions/{exception['exception_id']}/work"
+
+    first = client.post(endpoint)
+    assert first.status_code == 200, first.text
+    assert first.json()["existing"] is False
+    second = client.post(endpoint)
+    assert second.status_code == 200, second.text
+    assert second.json() == {"work_item_id": first.json()["work_item_id"], "existing": True}
+
+    snapshot = client.get(path).json()
+    linked = next(row for row in snapshot["exceptions"] if row["exception_id"] == exception["exception_id"])
+    assert linked["work_item_id"] == first.json()["work_item_id"]
+
+    with Session(engine) as session, session.begin():
+        rows = session.scalars(select(WorkItem).where(
+            WorkItem.organization_id == "o1",
+            WorkItem.facility_id == "f1",
+            WorkItem.entity_type == "cultivation_telemetry_exception",
+            WorkItem.entity_id == exception["exception_id"],
+        )).all()
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.workspace == "Cultivation"
+        assert row.route == f"/cultivation?room=r1&telemetry={quote(exception['exception_id'], safe='')}"
+        row.status = "completed"
+        row.completed_by = "tester"
+        row.completed_at = datetime.now(timezone.utc)
+
+    third = client.post(endpoint)
+    assert third.status_code == 200
+    assert third.json() == {"work_item_id": first.json()["work_item_id"], "existing": True}
+    with Session(engine) as session:
+        assert session.scalar(select(func.count()).select_from(WorkItem)) == 1
+
+
+def test_resolved_or_foreign_exception_cannot_create_work(setup):
+    engine, service = setup
+    context = RequestContext("tester", "o1", "f1", "operator")
+    client = _telemetry_client(engine, context)
+    path, exception = _fresh_exception(client, event_id="old-exception")
+    newer = (datetime.now(timezone.utc) - timedelta(seconds=5)).isoformat()
+    response = client.post(path + "/observations", json={"observations": [
+        reading(event_id="replacement-valid", quality="valid", observed_at=newer)
+    ]})
+    assert response.status_code == 200
+    stale = client.post(f"{path}/exceptions/{exception['exception_id']}/work")
+    assert stale.status_code == 409
+    foreign = client.post(f"/api/v1/inventory/production/plants/telemetry/rooms/r2/exceptions/{exception['exception_id']}/work")
+    assert foreign.status_code == 404
+    with Session(engine) as session:
+        assert session.scalar(select(func.count()).select_from(WorkItem)) == 0
+
+
+def test_work_and_telemetry_audit_roll_back_together(setup, monkeypatch):
+    from backend.app.routers import cultivation_telemetry as telemetry_router
+    engine, _ = setup
+    context = RequestContext("tester", "o1", "f1", "operator")
+    client = _telemetry_client(engine, context)
+    _, exception = _fresh_exception(client, event_id="rollback-exception")
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("audit unavailable")
+
+    monkeypatch.setattr(telemetry_router, "record_audit_event", fail)
+    with pytest.raises(RuntimeError, match="audit unavailable"):
+        telemetry_router.create_environment_work("r1", exception["exception_id"], context, engine)
+    with Session(engine) as session:
+        assert session.scalar(select(func.count()).select_from(WorkItem)) == 0
+
+
+def test_telemetry_permission_override_denies_mutations_but_not_read(setup):
+    engine, service = setup
+    observed = datetime.now(timezone.utc) - timedelta(minutes=1)
+    ingest(service, [reading(event_id="permission-exception", quality="suspect", observed_at=observed)])
+    context = RequestContext("tester", "o1", "f1", "operator")
+    client = _telemetry_client(engine, context)
+    snapshot = client.get("/api/v1/inventory/production/plants/telemetry/rooms/r1")
+    exception_id = snapshot.json()["exceptions"][0]["exception_id"]
+
+    with Session(engine) as session, session.begin():
+        session.add(AppUser(
+            id="tester", organization_id="o1", username="tester", normalized_username="tester",
+            display_name="Tester", role="operator", active=True, password_hash="test-only",
+        ))
+        session.flush()
+        session.add(AppUserPermissionOverride(
+            user_id="tester", organization_id="o1", facility_id="f1",
+            permission="cultivation.manage_telemetry", effect="deny",
+            created_by="tester", updated_by="tester",
+        ))
+
+    assert client.get("/api/v1/inventory/production/plants/telemetry/rooms/r1").status_code == 200
+    assert client.post("/api/v1/inventory/production/plants/telemetry/rooms/r1/target", json={"metric": "temperature"}).status_code == 403
+    assert client.post(
+        f"/api/v1/inventory/production/plants/telemetry/rooms/r1/exceptions/{exception_id}/work"
+    ).status_code == 403
+
+
+def test_exception_work_lookup_adds_one_bounded_query(setup):
+    engine, service = setup
+    observed = datetime.now(timezone.utc) - timedelta(minutes=1)
+    ingest(service, [reading(event_id="bounded-exception", quality="suspect", observed_at=observed)])
+    statements = []
+    def capture(*args):
+        statements.append(args[2])
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        snapshot = service.snapshot("o1", "f1", "r1")
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+    assert snapshot["exceptions"]
+    assert len(statements) == 5
+    assert "DOOBIE_WORK_ITEMS" in statements[-1].upper()
+    assert " IN " in statements[-1].upper()
+
+
+def test_final_migration_chain_is_single_0085_head():
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+    scripts = ScriptDirectory.from_config(Config("alembic.ini"))
+    assert scripts.get_heads() == ["0085_cultivation_telemetry"]
+    revision = scripts.get_revision("0085_cultivation_telemetry")
+    assert revision.down_revision == "0084_wholesale_logistics"
