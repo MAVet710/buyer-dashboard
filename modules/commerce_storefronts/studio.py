@@ -20,7 +20,7 @@ _THEME_PRESETS = {"clean", "premium", "dark", "western", "boutique"}
 _FONT_PRESETS = {"modern", "editorial", "rounded", "classic"}
 _CARD_STYLES = {"collectible", "premium", "compact", "clean"}
 _CARD_IMAGE_STYLES = {"cover", "contain", "framed"}
-_SECTIONS = {"hero", "featured", "catalog", "about", "contact"}
+_SECTIONS = {"hero", "partnership", "featured", "catalog", "about", "contact"}
 _OPTIONAL_STATS = {"batch", "coa", "harvest_date", "production_date", "expiration_date", "available", "sku", "case_quantity"}
 _CORE_STATS = ["thca", "tac", "terpenes"]
 _BADGES = {"featured", "new_drop", "limited", "staff_pick", "high_terps"}
@@ -74,13 +74,16 @@ def default_studio_design(accent_color: str = "#8abf55") -> dict[str, Any]:
         "announcement_enabled": False,
         "announcement_text": "",
         "show_hero": True,
+        "show_partnership": True,
+        "partnership_heading": "Built for long-term retail partners",
+        "partnership_body": "Browse live wholesale availability, compare verified batches, and submit an order request without losing the human sales relationship.",
         "show_featured": True,
         "show_about": False,
         "about_heading": "Brand story",
         "about_body": "",
         "show_contact": True,
         "show_footer": True,
-        "section_order": ["hero", "featured", "catalog", "about", "contact"],
+        "section_order": ["hero", "partnership", "featured", "catalog", "about", "contact"],
         "visible_stats": [*_CORE_STATS, "batch", "coa", "harvest_date", "available"],
         "badges": ["featured", "new_drop", "limited"],
         "logo_asset_id": "",
@@ -116,6 +119,9 @@ def normalize_studio_design(raw: Any, *, accent_color: str = "#8abf55") -> dict[
             raise ValueError("Storefront section order contains an unsupported section.")
         if section not in order:
             order.append(section)
+    if "partnership" not in order:
+        hero_index = order.index("hero") if "hero" in order else -1
+        order.insert(hero_index + 1, "partnership")
     for section in base["section_order"]:
         if section not in order:
             order.append(section)
@@ -156,6 +162,9 @@ def normalize_studio_design(raw: Any, *, accent_color: str = "#8abf55") -> dict[
         "announcement_enabled": bool(value.get("announcement_enabled", base["announcement_enabled"])),
         "announcement_text": _clean_text(value.get("announcement_text", base["announcement_text"]), 240),
         "show_hero": bool(value.get("show_hero", base["show_hero"])),
+        "show_partnership": bool(value.get("show_partnership", base["show_partnership"])),
+        "partnership_heading": _clean_text(value.get("partnership_heading", base["partnership_heading"]), 160),
+        "partnership_body": _clean_text(value.get("partnership_body", base["partnership_body"]), 3000),
         "show_featured": bool(value.get("show_featured", base["show_featured"])),
         "show_about": bool(value.get("show_about", base["show_about"])),
         "about_heading": _clean_text(value.get("about_heading", base["about_heading"]), 120),

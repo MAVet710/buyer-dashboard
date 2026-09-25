@@ -63,6 +63,32 @@ function upsertMeta(name: string, content: string, attribute: "name" | "property
   element.content = content;
 }
 
+export function configurePublicStorefrontSeo(storefront: { displayName: string; description?: string; canonical: string; image?: string }): void {
+  const title = `${storefront.displayName} | Wholesale Cannabis Catalog`;
+  const rawDescription = storefront.description?.trim() || `Browse live wholesale cannabis availability from ${storefront.displayName}, including batch and COA-backed product information.`;
+  const description = rawDescription.length > 180 ? `${rawDescription.slice(0, 177).trimEnd()}…` : rawDescription;
+  document.title = title;
+  upsertMeta("description", description);
+  upsertMeta("robots", PUBLIC_ROBOTS);
+  upsertMeta("googlebot", PUBLIC_ROBOTS);
+  document.head.querySelector('link[rel="canonical"]')?.remove();
+  document.head.querySelectorAll('meta[property^="og:"], meta[name^="twitter:"]').forEach((element) => element.remove());
+  const canonical = document.createElement("link");
+  canonical.rel = "canonical";
+  canonical.href = storefront.canonical;
+  document.head.appendChild(canonical);
+  const rawImage = storefront.image?.trim() || SOCIAL_IMAGE;
+  const image = new URL(rawImage, window.location.origin).href;
+  for (const [name, content] of Object.entries({
+    "og:type": "website", "og:site_name": storefront.displayName, "og:title": title,
+    "og:description": description, "og:url": storefront.canonical, "og:image": image,
+  })) upsertMeta(name, content, "property");
+  for (const [name, content] of Object.entries({
+    "twitter:card": "summary_large_image", "twitter:title": title,
+    "twitter:description": description, "twitter:image": image,
+  })) upsertMeta(name, content);
+}
+
 export function configureSeo(marketing: boolean): void {
   const page = seoPage(marketing, window.location.pathname);
   document.title = page.title;
