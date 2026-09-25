@@ -6,7 +6,8 @@ import ts from 'typescript';
 const root = new URL('../', import.meta.url);
 const dataModule = code => 'data:text/javascript;base64,' + Buffer.from(code).toString('base64');
 const compile = async path => ts.transpileModule(await readFile(new URL(path, root), 'utf8'), {compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
-const metadata = dataModule(await compile('src/lib/advisorySeo.ts'));
+const helpSeo = dataModule(await compile('src/lib/helpSeo.ts'));
+const metadata = dataModule((await compile('src/lib/advisorySeo.ts')).replace('"./helpSeo"', JSON.stringify(helpSeo)));
 const content = dataModule(await compile('src/components/marketing/content.ts'));
 const seoModule = (await compile('src/lib/seo.ts')).replace('"./advisorySeo"', JSON.stringify(metadata)).replace('"../components/marketing/content"', JSON.stringify(content));
 const {seoPage,marketingStructuredData} = await import(dataModule(seoModule));
@@ -14,7 +15,7 @@ const {advisoryRoutes} = await import(metadata);
 const dist = resolve(process.argv[2] || new URL('../dist', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
 const original = await readFile(resolve(dist,'index.html'),'utf8');
 const escape = value => value.replaceAll('&','&amp;').replaceAll('"','&quot;').replaceAll('<','&lt;').replaceAll('>','&gt;');
-for (const path of Object.keys(advisoryRoutes).filter(path => path.startsWith('/consulting') || path.startsWith('/resources') || path.startsWith('/tools/'))) {
+for (const path of Object.keys(advisoryRoutes).filter(path => path.startsWith('/consulting') || path.startsWith('/resources') || path.startsWith('/tools/') || path.startsWith('/help'))) {
   const page = seoPage(true,path);
   let html = original.replace(/<title>[\s\S]*?<\/title>/i, `<title>${escape(page.title)}</title>`)
     .replace(/<meta\s+(?:name="(?:description|robots|googlebot|twitter:[^"]+)"|property="og:[^"]+")[^>]*>/gi,'')
@@ -31,4 +32,7 @@ for (const path of Object.keys(advisoryRoutes).filter(path => path.startsWith('/
   const target=resolve(dist,path.slice(1),'index.html');
   await mkdir(dirname(target),{recursive:true});await writeFile(target,html);
 }
-console.log('Public advisory route metadata emitted.');
+const sitemapPaths = Object.keys(advisoryRoutes).sort((a,b) => a === '/' ? -1 : b === '/' ? 1 : a.localeCompare(b));
+const sitemap = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + sitemapPaths.map(path => `  <url><loc>https://doobielogic.io${path === '/' ? '/' : path}</loc></url>`).join('\n') + '\n</urlset>\n';
+await writeFile(resolve(dist,'sitemap.xml'),sitemap);
+console.log(`Public metadata emitted for ${Object.keys(advisoryRoutes).length} routes.`);

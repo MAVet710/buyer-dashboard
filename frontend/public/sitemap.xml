@@ -1,19 +1,63 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://doobielogic.io/</loc></url>
+  <url><loc>https://doobielogic.io/beta</loc></url>
   <url><loc>https://doobielogic.io/consulting</loc></url>
-  <url><loc>https://doobielogic.io/consulting/inventory-profit-audit</loc></url>
-  <url><loc>https://doobielogic.io/consulting/fractional-purchasing</loc></url>
   <url><loc>https://doobielogic.io/consulting/compliance-operational-audit</loc></url>
-  <url><loc>https://doobielogic.io/consulting/sop-workflow-development</loc></url>
+  <url><loc>https://doobielogic.io/consulting/fractional-purchasing</loc></url>
+  <url><loc>https://doobielogic.io/consulting/inventory-profit-audit</loc></url>
   <url><loc>https://doobielogic.io/consulting/metrc-technology</loc></url>
-  <url><loc>https://doobielogic.io/consulting/production-extraction</loc></url>
   <url><loc>https://doobielogic.io/consulting/operational-diagnostic</loc></url>
+  <url><loc>https://doobielogic.io/consulting/production-extraction</loc></url>
+  <url><loc>https://doobielogic.io/consulting/sop-workflow-development</loc></url>
+  <url><loc>https://doobielogic.io/help</loc></url>
+  <url><loc>https://doobielogic.io/help/buying</loc></url>
+  <url><loc>https://doobielogic.io/help/buying/budget</loc></url>
+  <url><loc>https://doobielogic.io/help/buying/delivery-performance</loc></url>
+  <url><loc>https://doobielogic.io/help/buying/planning-settings</loc></url>
+  <url><loc>https://doobielogic.io/help/buying/purchase-orders</loc></url>
+  <url><loc>https://doobielogic.io/help/buying/recommendations</loc></url>
+  <url><loc>https://doobielogic.io/help/compliance</loc></url>
+  <url><loc>https://doobielogic.io/help/compliance/label-studio</loc></url>
+  <url><loc>https://doobielogic.io/help/compliance/ma-flower-equivalency</loc></url>
+  <url><loc>https://doobielogic.io/help/compliance/product-name-mapper</loc></url>
+  <url><loc>https://doobielogic.io/help/compliance/qa</loc></url>
+  <url><loc>https://doobielogic.io/help/compliance/state-actions</loc></url>
+  <url><loc>https://doobielogic.io/help/compliance/traceability</loc></url>
+  <url><loc>https://doobielogic.io/help/cultivation</loc></url>
+  <url><loc>https://doobielogic.io/help/cultivation/post-harvest</loc></url>
+  <url><loc>https://doobielogic.io/help/doobie-agent</loc></url>
+  <url><loc>https://doobielogic.io/help/extraction</loc></url>
+  <url><loc>https://doobielogic.io/help/getting-started</loc></url>
+  <url><loc>https://doobielogic.io/help/home</loc></url>
+  <url><loc>https://doobielogic.io/help/home/control-towers</loc></url>
+  <url><loc>https://doobielogic.io/help/home/work-queue</loc></url>
+  <url><loc>https://doobielogic.io/help/inventory</loc></url>
+  <url><loc>https://doobielogic.io/help/inventory/audits</loc></url>
+  <url><loc>https://doobielogic.io/help/inventory/catalog-admin</loc></url>
+  <url><loc>https://doobielogic.io/help/inventory/package-360</loc></url>
+  <url><loc>https://doobielogic.io/help/inventory/product-360</loc></url>
+  <url><loc>https://doobielogic.io/help/inventory/receiving</loc></url>
+  <url><loc>https://doobielogic.io/help/inventory/slow-movers</loc></url>
+  <url><loc>https://doobielogic.io/help/inventory/transfers</loc></url>
+  <url><loc>https://doobielogic.io/help/package-studio</loc></url>
+  <url><loc>https://doobielogic.io/help/production</loc></url>
+  <url><loc>https://doobielogic.io/help/production/calendar</loc></url>
+  <url><loc>https://doobielogic.io/help/production/run-360</loc></url>
+  <url><loc>https://doobielogic.io/help/reports/executive</loc></url>
+  <url><loc>https://doobielogic.io/help/reports/sales-category-trends</loc></url>
+  <url><loc>https://doobielogic.io/help/settings/admin</loc></url>
+  <url><loc>https://doobielogic.io/help/settings/imports-data</loc></url>
+  <url><loc>https://doobielogic.io/help/settings/integrations</loc></url>
+  <url><loc>https://doobielogic.io/help/settings/location</loc></url>
+  <url><loc>https://doobielogic.io/help/white-label-repack</loc></url>
+  <url><loc>https://doobielogic.io/help/wholesale</loc></url>
+  <url><loc>https://doobielogic.io/help/wholesale/orders</loc></url>
+  <url><loc>https://doobielogic.io/help/wholesale/warehouse-pick-pack</loc></url>
   <url><loc>https://doobielogic.io/resources</loc></url>
   <url><loc>https://doobielogic.io/resources/days-on-hand-for-cannabis-inventory</loc></url>
   <url><loc>https://doobielogic.io/resources/inventory-reconciliation-checklist</loc></url>
   <url><loc>https://doobielogic.io/resources/metrc-api-readiness-checklist</loc></url>
-  <url><loc>https://doobielogic.io/beta</loc></url>
-  <url><loc>https://doobielogic.io/tools/operations-score</loc></url>
   <url><loc>https://doobielogic.io/tools/inventory-health-check</loc></url>
+  <url><loc>https://doobielogic.io/tools/operations-score</loc></url>
 </urlset>

@@ -1,4 +1,6 @@
-// Lightweight metadata only: the entry bundle must not import long-form articles.
+// Public metadata contract shared by the marketing router and static SEO emitter.
+import { helpSeoRoutes } from "./helpSeo";
+
 export const advisoryRoutes: Record<string, { title: string; description: string; kind: "website" | "service" | "article" }> = {
   "/tools/operations-score": { title: "Operations Health Check | DoobieLogic Advisory", description: "Use a self-assessment to organize questions about your operating habits and handoffs. Discussion context, not an audit or compliance score.", kind: "website" },
   "/tools/inventory-health-check": { title: "Inventory Health Check | DoobieLogic Advisory", description: "Analyze an inventory CSV privately in your browser. Map columns to review stock value, age and stock cover, with missing data explained.", kind: "website" },
@@ -16,4 +18,7 @@ export const advisoryRoutes: Record<string, { title: string; description: string
   "/resources/inventory-reconciliation-checklist": { title: "Inventory Reconciliation Checklist | DoobieLogic", description: "A practical checklist for count boundaries, variance investigation, approved corrections and verified resolution. Operational guidance, not legal advice.", kind: "article" },
   "/resources/metrc-api-readiness-checklist": { title: "Metrc API Readiness Checklist | DoobieLogic", description: "Plan workflow scope, access, mappings, exception tests and readback verification using official Metrc documentation.", kind: "article" },
   "/beta": { title: "Apply for the DoobieLogic Beta | Cannabis Operations Software", description: "Cannabis operations software in beta for cultivation, extraction, production, inventory and purchasing teams. Bring connected operational context into view with DoobieLogic.", kind: "website" },
+  "/help": { title: "DoobieLogic Help Center | Cannabis Operations Guides", description: "Step-by-step DoobieLogic guides for inventory, buying, cultivation, production, extraction, wholesale, compliance, reporting, integrations and administration.", kind: "website" },
 };
+
+Object.assign(advisoryRoutes, helpSeoRoutes);
