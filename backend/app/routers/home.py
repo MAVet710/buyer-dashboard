@@ -402,6 +402,16 @@ def operations_inbox(context: RequestContext = Depends(get_request_context), eng
                 "action_label": "Review",
                 "evidence": [f"Provider {row.provider.upper()}", f"Status {row.status}"],
             })
+    from ..services.work import WorkService
+    for work in WorkService(engine, context).list(view="attention", limit=20)["items"]:
+        items.append({
+            "id": f"work:{work['id']}", "severity": "critical" if work["priority"] == "critical" else "high",
+            "area": "Work", "title": work["title"],
+            "detail": "Assigned work needs attention. Review its due time, progress and evidence.",
+            "workspace": "Work Queue", "route": f"/work?item={work['id']}",
+            "entity_id": work["id"], "action_label": "Inspect work",
+            "evidence": [f"Status {work['status']}", f"Due {work['due_at'] or 'Not set'}"],
+        })
     priority = {"critical": 0, "high": 1, "medium": 2, "low": 3}
     items.sort(key=lambda item: (priority[item["severity"]], item["area"], item["title"]))
     return {"items": items[:50], "summary": {"critical": sum(item["severity"] == "critical" for item in items), "high": sum(item["severity"] == "high" for item in items), "total": len(items)}}

@@ -1,0 +1,14 @@
+.work-queue { max-width: 1400px; margin: auto; padding: 16px; }
+.work-header, .work-actions, .work-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.work-header { justify-content: space-between; }
+.work-filters { margin: 20px 0; align-items: stretch; }
+.work-queue label { display: flex; flex-direction: column; gap: 6px; }
+.work-queue input, .work-queue select, .work-queue textarea { width: 100%; min-height: 44px; padding: 8px; box-sizing: border-box; }
+.work-queue button { min-height: 44px; padding: 8px 12px; }
+.work-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 16px; margin-bottom: 16px; }
+.work-card, .work-detail, .work-form { border: 1px solid var(--border, #64748b); border-radius: 12px; padding: 16px; margin: 12px 0; overflow-wrap: anywhere; }
+.work-title { text-align: left; text-decoration: underline; background: transparent; color: inherit; border: 0; font: inherit; }
+.work-form { display: grid; gap: 12px; }
+.work-form fieldset { display: grid; gap: 12px; min-width: 0; border: 0; padding: 0; }
+.work-detail p { white-space: pre-wrap; }
+@media (max-width: 600px) { .work-queue { padding: 8px; } .work-filters label { flex: 1 1 140px; } .work-actions { width: 100%; } .work-actions button { flex: 1; } }

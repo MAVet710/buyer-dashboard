@@ -16,12 +16,13 @@ type Summary = {
   open_purchase_orders: number;
   open_purchase_order_value: number;
 };
-type InboxItem = { id: string; severity: string; area: string; title: string; detail: string; workspace: string; entity_id: string; product_id?: string; action_label?: string; evidence?: string[] };
+type InboxItem = { route?: string; id: string; severity: string; area: string; title: string; detail: string; workspace: string; entity_id: string; product_id?: string; action_label?: string; evidence?: string[] };
 type Inbox = { items: InboxItem[]; summary: { critical: number; high: number; total: number } };
 type Context = { user: { display_name: string; email: string; role: string }; organization: { id: string; name: string } | null; facility_id: string; facility?: { id: string; name: string } | null; facilities: { id: string; name: string }[] };
 type HomeAction = { label: string; description: string; page: string; roles?: string[] };
 
 const HOME_ACTIONS: HomeAction[] = [
+  { label: "Open Work Queue", description: "Assign, track and complete operational work across your facility.", page: "Work Queue" },
   { label: "Open Operations Control Tower", description: "Resolve cross-workspace risk, review Doobie actions, check SOPs, labels, profitability, cultivation, machines, and commerce.", page: "Operations Control Tower", roles: ["dev", "admin", "buyer", "planner", "supervisor", "operator", "qa", "read_only"] },
   { label: "Ask Doobie Agent", description: "Use facility-scoped operational and regulatory intelligence to understand what needs attention and what should happen next.", page: "Doobie", roles: ["dev", "admin", "buyer", "planner", "supervisor", "operator", "qa", "read_only"] },
   { label: "Wholesale & Customer Portal", description: "Work sales orders, fulfillment, customers, storefronts, manifest readiness, and distribution from the same production inventory.", page: "Wholesale Ops", roles: ["dev", "admin", "buyer", "planner", "supervisor", "operator", "qa", "read_only"] },
@@ -54,7 +55,7 @@ export function HomePage({ onNavigate }: { onNavigate: (page: string) => void })
     } else if (item.product_id) {
       setProductLotId("");
       setProductId(item.product_id);
-    } else onNavigate(item.workspace);
+    } else onNavigate(item.route || item.workspace);
   };
   const closeProduct360 = () => { setProductId(""); setProductLotId(""); };
 

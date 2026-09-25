@@ -42,6 +42,7 @@ from .routers.account import router as account_router
 from .routers.data_hub import router as data_hub_router
 from .routers.location_settings import router as location_settings_router
 from .routers.home import router as home_router
+from .routers.work import router as work_router
 from .routers.product_360 import router as product_360_router
 from .routers.package_360 import router as package_360_router
 from .routers.doobie import router as doobie_router
@@ -301,6 +302,7 @@ app.include_router(security_center_router, prefix=settings.api_prefix)
 app.include_router(data_hub_router, prefix=settings.api_prefix)
 app.include_router(location_settings_router, prefix=settings.api_prefix)
 app.include_router(home_router, prefix=settings.api_prefix)
+app.include_router(work_router, prefix=settings.api_prefix)
 app.include_router(product_360_router, prefix=settings.api_prefix)
 app.include_router(package_360_router, prefix=settings.api_prefix)
 app.include_router(doobie_router, prefix=settings.api_prefix)

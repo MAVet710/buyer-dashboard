@@ -54,6 +54,7 @@ const PRODUCTION_PRIMARY: PrimaryItem[] = [
 function secondaryItems(category: PrimaryCategory, operation: OperationMode, role: string): SecondaryItem[] {
   if (category === "Home") return [
     { label: "Needs Attention / Today", page: "Home" },
+    { label: "Work Queue", page: "Work Queue" },
     { label: "Operations Control Tower", page: "Operations Control Tower" },
     { label: "Enterprise Control Tower", page: "Enterprise Control Tower", roles: ADMIN },
   ];
@@ -154,7 +155,7 @@ function dataSettingsItems(role: string): SecondaryItem[] {
 }
 
 function categoryForPage(page: string, _operation: OperationMode): PrimaryCategory {
-  if (["Home", "Operations Control Tower", "Enterprise Control Tower"].includes(page)) return "Home";
+  if (["Home", "Work Queue", "Operations Control Tower", "Enterprise Control Tower"].includes(page)) return "Home";
   if (["Buyer Operations", "Buying Recommendations", "Delivery Performance", "Purchase Orders", "Buying Budget", "Purchasing", "Replenishment Policies"].includes(page)) return "Buying";
   if (["Wholesale Ops", "Orders", "Warehouse Pick Pack"].includes(page)) return "Wholesale";
   if (["Cultivation", "Post-Harvest"].includes(page)) return "Cultivation";

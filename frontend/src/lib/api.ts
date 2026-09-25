@@ -129,6 +129,13 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
+  const serialized = JSON.stringify(body);
+  const response = await authorizedFetch(path, headers => ({ method: "PATCH", headers: { ...headers, "Content-Type": "application/json" }, body: serialized }));
+  if (!response.ok) return throwResponseError(response);
+  return response.json() as Promise<T>;
+}
+
 export async function apiPostIdempotent<T>(path: string, body: unknown, idempotencyKey: string): Promise<T> {
   const key = String(idempotencyKey || "").trim();
   if (!key) throw new Error("An idempotency key is required for this request.");
