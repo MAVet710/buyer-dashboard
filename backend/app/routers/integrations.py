@@ -8,6 +8,7 @@ from services.doobie_connection import DEFAULT_DOOBIE_BASE_URL, test_doobie_conn
 from services.metrc_client import test_metrc_connection
 from ..auth import RequestContext, get_request_context
 from ..config import Settings, get_settings
+from ..permissions import require_permission
 from ..database import get_engine
 from ..services.ai_runtime import diagnostics
 from ..services.metrc_context import metrc_scope_key, resolve_metrc_context
@@ -214,6 +215,7 @@ def save_metrc(
     engine: Engine = Depends(get_engine),
     settings: Settings = Depends(get_settings),
 ):
+    require_permission(context, engine, "integrations.manage_metrc")
     service = _service(engine, settings)
     row = service.save(
         scope_type="user",
@@ -269,6 +271,7 @@ def clear_metrc(
     engine: Engine = Depends(get_engine),
     settings: Settings = Depends(get_settings),
 ):
+    require_permission(context, engine, "integrations.manage_metrc")
     service = _service(engine, settings)
     service.clear(
         scope_type="user",

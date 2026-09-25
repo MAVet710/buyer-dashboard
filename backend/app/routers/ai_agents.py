@@ -16,6 +16,7 @@ from services.ai.telemetry import AITelemetry
 
 from ..auth import RequestContext, get_request_context
 from ..config import Settings, get_settings
+from ..permissions import require_permission
 from ..database import get_engine
 from ..services.ai_runtime import build_runtime, diagnostics, runtime_configuration
 from ..services.regulatory_intelligence import RegulatoryIntelligenceService
@@ -294,6 +295,7 @@ async def ingest_knowledge(
     engine: Engine = Depends(get_engine),
     settings: Settings = Depends(get_settings),
 ):
+    require_permission(context, engine, "ai.publish_knowledge")
     role = context.role.casefold()
     if role not in KNOWLEDGE_ROLES:
         raise HTTPException(403, "Your role cannot publish AI knowledge sources.")

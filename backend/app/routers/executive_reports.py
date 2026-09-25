@@ -19,6 +19,7 @@ from reports.extraction_report import _build_extraction_executive_report_pdf
 from reports.white_label_report import _build_white_label_repack_report_pdf
 from .buyer_parity import _model as buyer_model
 from ..auth import RequestContext, get_request_context, get_retail_context
+from ..permissions import require_permission
 from ..database import get_engine
 
 router = APIRouter(prefix="/executive-reports", tags=["executive-reports"])
@@ -296,17 +297,20 @@ def catalog(context: RequestContext = Depends(get_request_context)):
 
 @router.post("/buyer.pdf")
 def buyer_report_pdf(payload: dict | None = Body(default=None), context: RequestContext = Depends(get_retail_context), engine: Engine = Depends(get_engine)):
+    require_permission(context, engine, "reports.export")
     pdf, _has_data = _buyer_report(context, engine, payload)
     return _pdf_response(pdf, f"buyer_executive_summary_{datetime.now().strftime('%Y-%m-%d')}.pdf", "Buyer Operations Executive Report")
 
 
 @router.post("/white-label.pdf")
 def white_label_report_pdf(payload: dict = Body(...), context: RequestContext = Depends(get_retail_context), engine: Engine = Depends(get_engine)):
+    require_permission(context, engine, "reports.export")
     return _pdf_response(_white_label_report(payload, context, engine), "retail_ops_repack_report.pdf", "White Label / Repack Report")
 
 
 @router.post("/packs/retail.pdf")
 def retail_pack_pdf(payload: dict | None = Body(default=None), context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
+    require_permission(context, engine, "reports.export")
     parts = _retail_pack_parts(payload, context, engine)
     if not parts:
         raise HTTPException(422, "No Retail Ops reports are available for the current facility and session.")
@@ -316,6 +320,7 @@ def retail_pack_pdf(payload: dict | None = Body(default=None), context: RequestC
 
 @router.post("/packs/production.pdf")
 def production_pack_pdf(payload: dict | None = Body(default=None), context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
+    require_permission(context, engine, "reports.export")
     del payload
     parts = _production_pack_parts(context, engine)
     if not parts:
@@ -326,6 +331,7 @@ def production_pack_pdf(payload: dict | None = Body(default=None), context: Requ
 
 @router.post("/packs/cultivation.pdf")
 def cultivation_pack_pdf(payload: dict | None = Body(default=None), context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
+    require_permission(context, engine, "reports.export")
     del payload
     parts = _cultivation_pack_parts(context, engine)
     if not parts:
@@ -336,6 +342,7 @@ def cultivation_pack_pdf(payload: dict | None = Body(default=None), context: Req
 
 @router.post("/packs/company.pdf")
 def company_pack_pdf(payload: dict | None = Body(default=None), context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
+    require_permission(context, engine, "reports.export")
     retail = _retail_pack_parts(payload, context, engine)
     production = _production_pack_parts(context, engine)
     cultivation_payload, cultivation_has_data = _cultivation_payload(context, engine)
@@ -352,6 +359,7 @@ def company_pack_pdf(payload: dict | None = Body(default=None), context: Request
 
 @router.get("/{report_key}.pdf")
 def report_pdf(report_key: str, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
+    require_permission(context, engine, "reports.export")
     if report_key == "buyer":
         pdf, _has_data = _buyer_report(context, engine)
         filename = "Buyer_Operations_Executive_Report.pdf"

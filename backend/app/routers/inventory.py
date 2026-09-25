@@ -12,6 +12,7 @@ from services.metrc_receiving import (
 )
 from ..auth import RequestContext, get_request_context, require_facility_capability, require_inventory_operation_capability
 from ..config import Settings, get_settings
+from ..permissions import require_permission
 from ..database import get_engine
 from ..schemas.inventory import (
     InventoryAdjustmentCreate,
@@ -315,6 +316,7 @@ def receive_inventory(
     context: RequestContext = Depends(get_request_context),
     engine: Engine = Depends(get_engine),
 ):
+    require_permission(context, engine, "inventory.receive")
     _require_operation(operation)
     _require_receiving(context)
     require_inventory_operation_capability(context, engine, operation)
@@ -337,6 +339,7 @@ def receive_inventory_batch(
     context: RequestContext = Depends(get_request_context),
     engine: Engine = Depends(get_engine),
 ):
+    require_permission(context, engine, "inventory.receive")
     _require_operation(operation)
     _require_receiving(context)
     require_inventory_operation_capability(context, engine, operation)
@@ -420,6 +423,7 @@ def adjust_inventory(
     engine: Engine = Depends(get_engine),
     settings: Settings = Depends(get_settings),
 ):
+    require_permission(context, engine, "inventory.adjust")
     _require_operation(operation)
     _require_adjustment(context)
     require_inventory_operation_capability(context, engine, operation)

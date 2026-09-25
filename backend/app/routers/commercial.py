@@ -11,6 +11,7 @@ from modules.commercial.analytics import commercial_dashboard_metrics, fulfillme
 from modules.commercial.repository import CommercialRepository, OPEN_ORDER_STATUSES
 from modules.commercial_finance.service import CommercialFinanceService
 from ..auth import RequestContext, get_request_context, get_commercial_context
+from ..permissions import require_permission
 from ..database import get_engine
 
 router = APIRouter(prefix="/commercial", tags=["commercial"], dependencies=[Depends(get_commercial_context)])
@@ -247,6 +248,7 @@ def send_invoice(invoice_id: str, context: RequestContext = Depends(get_request_
 
 @router.post("/invoices/{invoice_id}/payments", status_code=201)
 def record_payment(invoice_id: str, payload: PaymentCreate, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
+    require_permission(context, engine, "commercial.record_payment")
     try:
         row = CommercialFinanceService(engine).record_payment(organization_id=context.organization_id, facility_id=context.facility_id, invoice_id=invoice_id, actor=context.user_id, **payload.model_dump()); return {key: getattr(row, key) for key in ("id", "amount_usd", "payment_date", "method", "reference", "recorded_at")}
     except ValueError as exc: raise HTTPException(422, str(exc)) from exc

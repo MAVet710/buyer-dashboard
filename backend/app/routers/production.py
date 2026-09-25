@@ -8,6 +8,7 @@ from modules.production_erp.performance import planning_snapshot, queue_summary_
 from modules.production_erp.scheduling import ProductionScheduleService
 from modules.production_erp.service import ProductionERPService
 from ..auth import RequestContext, get_request_context, get_production_context
+from ..permissions import require_permission
 from ..database import get_engine
 
 router = APIRouter(prefix="/production", tags=["production"], dependencies=[Depends(get_production_context)])
@@ -242,6 +243,7 @@ def commit_schedule(
     context: RequestContext = Depends(get_request_context),
     engine: Engine = Depends(get_engine),
 ):
+    require_permission(context, engine, "production.schedule")
     if context.role.casefold() not in {"dev", "admin", "planner", "supervisor"}:
         raise HTTPException(403, "Your role cannot commit production schedule changes.")
     try:
@@ -402,6 +404,7 @@ def record_qa(
 ):
     if context.role.casefold() not in {"dev", "admin", "supervisor", "qa"}:
         raise HTTPException(403, "Your role cannot post QA decisions.")
+    require_permission(context, engine, "qa.decide")
     try:
         row = _service(engine).record_qa(
             organization_id=context.organization_id,

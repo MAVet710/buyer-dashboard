@@ -17,6 +17,7 @@ from modules.extraction.workflows import (
     validate_terpene_percentage,
 )
 from ..auth import RequestContext, get_request_context, get_production_context
+from ..permissions import require_permission
 from ..database import get_engine
 
 router = APIRouter(prefix="/extraction", tags=["extraction"], dependencies=[Depends(get_production_context)])
@@ -599,6 +600,7 @@ def cost(run_id: str, payload: CostCreate, context: RequestContext = Depends(get
 def qa(run_id: str, payload: QACreate, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
     if context.role.casefold() not in {"dev", "admin", "supervisor", "qa"}:
         raise HTTPException(403, "Your role cannot post extraction QA decisions.")
+    require_permission(context, engine, "qa.decide")
     try:
         row = _repo(engine).record_qa_event(organization_id=context.organization_id, facility_id=context.facility_id, run_id=run_id, actor=context.user_id, **payload.model_dump())
         return {"id": row.id, "event_type": row.event_type, "result": row.result}

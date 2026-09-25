@@ -15,6 +15,7 @@ from modules.traceability.global_ledger import GlobalTraceabilityLedger, machine
 from services.traceability_dispatcher import TraceabilityDispatcher, TraceabilityDispatchError
 from ..auth import RequestContext, get_request_context
 from ..config import Settings, get_settings
+from ..permissions import require_permission
 from ..database import get_engine
 from ..services.metrc_context import resolve_metrc_context
 
@@ -455,6 +456,7 @@ def retry_traceability_exception(
     context: RequestContext = Depends(get_request_context),
     engine: Engine = Depends(get_engine),
 ):
+    require_permission(context, engine, "traceability.dispatch")
     if context.role.casefold() not in DISPATCH_ROLES:
         raise HTTPException(403, "Supervisor, QA, Admin, or DEV approval is required to retry a regulatory action.")
     try:
@@ -474,6 +476,7 @@ def resolve_traceability_exception(
     context: RequestContext = Depends(get_request_context),
     engine: Engine = Depends(get_engine),
 ):
+    require_permission(context, engine, "traceability.dispatch")
     if context.role.casefold() not in DISPATCH_ROLES:
         raise HTTPException(403, "Supervisor, QA, Admin, or DEV approval is required to resolve a regulatory exception.")
     try:
@@ -531,6 +534,7 @@ def dispatch_action(
     engine: Engine = Depends(get_engine),
     settings: Settings = Depends(get_settings),
 ):
+    require_permission(context, engine, "traceability.dispatch")
     if context.role.casefold() not in DISPATCH_ROLES:
         raise HTTPException(403, "Supervisor, QA, Admin, or DEV approval is required to dispatch a state-system mutation.")
     if not str(settings.integration_encryption_key or "").strip():

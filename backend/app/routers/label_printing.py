@@ -15,6 +15,7 @@ from modules.label_studio_workflow import LabelProductionWorkflowService
 from modules.operational_moats.printing import LabelPrintingService
 from ..auth import RequestContext, get_request_context
 from ..config import Settings, get_settings
+from ..permissions import require_permission
 from ..database import get_engine
 from ..services.label_studio import LabelInventoryService
 from ..services.label_studio_fast import FastLabelInventoryService
@@ -245,6 +246,7 @@ def create_label_production_run(
     context: RequestContext = Depends(get_request_context),
     engine: Engine = Depends(get_engine),
 ):
+    require_permission(context, engine, "labels.advance_runs")
     _require_label_workflow_write(context)
     try:
         return LabelProductionWorkflowService(engine).create_run(
@@ -281,6 +283,7 @@ def assign_label_production_tag(
     engine: Engine = Depends(get_engine),
     settings: Settings = Depends(get_settings),
 ):
+    require_permission(context, engine, "labels.advance_runs")
     _require_label_workflow_write(context)
     try:
         _, metrc = resolve_metrc_context(engine, settings, context)
@@ -311,6 +314,7 @@ def save_label_production_design(
     context: RequestContext = Depends(get_request_context),
     engine: Engine = Depends(get_engine),
 ):
+    require_permission(context, engine, "labels.advance_runs")
     _require_label_workflow_write(context)
     try:
         return LabelProductionWorkflowService(engine).save_design(
@@ -328,6 +332,7 @@ def record_label_production_print(
     context: RequestContext = Depends(get_request_context),
     engine: Engine = Depends(get_engine),
 ):
+    require_permission(context, engine, "labels.advance_runs")
     _require_label_workflow_write(context)
     try:
         return LabelProductionWorkflowService(engine).record_print(
@@ -349,6 +354,7 @@ def transition_label_production_run(
     context: RequestContext = Depends(get_request_context),
     engine: Engine = Depends(get_engine),
 ):
+    require_permission(context, engine, "labels.advance_runs")
     _require_label_workflow_write(context)
     try:
         return LabelProductionWorkflowService(engine).transition(

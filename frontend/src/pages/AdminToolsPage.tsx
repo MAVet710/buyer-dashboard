@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { apiDownload, apiGet, apiPost, downloadBlob } from "../lib/api";
 import { UserPermissionManager } from "../components/UserPermissionManager";
 import { AdminPage } from "./AdminPage";
+import { SecurityReadiness } from "../components/SecurityReadiness";
 import { SecurityOverview } from "../components/SecurityOverview";
 
 type UploadRow = {
@@ -76,6 +77,7 @@ export function AdminToolsPage() {
   return <div className="admin-tools-parity">
     <AdminPage />
     <SecurityOverview />
+    <SecurityReadiness />
     <UserPermissionManager />
     <FacilityContextEditor />
     <StorefrontOwnershipEditor />
