@@ -8,6 +8,7 @@ from modules.coman.models import InventoryLot, Product
 from modules.repack.execution import WhiteLabelService
 from ..auth import RequestContext, get_request_context, require_any_facility_capability, require_facility_capability
 from ..database import get_engine
+from ..permissions import require_permission
 
 router = APIRouter(prefix="/white-label", tags=["white-label"])
 EDIT_ROLES = {"dev", "admin", "buyer", "planner", "supervisor"}
@@ -57,6 +58,8 @@ def _scope(context, engine, write=False, approve=False):
     require_any_facility_capability(context, engine, ("retail", "production"))
     if write and context.role.casefold() not in EDIT_ROLES:
         raise HTTPException(403, "Your role cannot change White Label plans.")
+    if write:
+        require_permission(context, engine, "white_label.manage_plans")
     if approve:
         require_facility_capability(context, engine, "production")
 

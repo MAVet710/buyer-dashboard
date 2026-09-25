@@ -96,14 +96,25 @@ class WhiteLabelService:
                     coa_document_id=quality.coa_document_id, lab_testing_state=quality.lab_testing_state)
 
     @staticmethod
+    def _status(status, execution_status, package_started=False):
+        if not execution_status:
+            return status
+        projected = {"in_progress": "executing", "on_hold": "executing",
+                     "complete": "completed", "cancelled": "cancelled"}.get(execution_status, "approved")
+        return "executing" if projected == "approved" and package_started else projected
+
+    @staticmethod
+    def _package_started(session, row):
+        return bool(row.production_order_id and session.scalar(select(PackageStudioRun.id).where(
+            PackageStudioRun.production_order_id == row.production_order_id,
+            PackageStudioRun.organization_id == row.organization_id,
+            PackageStudioRun.facility_id == row.facility_id,
+            PackageStudioRun.status == "committed").limit(1)))
+
+    @staticmethod
     def _payload(row, order=None, detail=True, package_started=False):
         # Execution state is projected from the durable canonical order, never a second ledger.
-        status = row.status
-        if order:
-            status = {"in_progress": "executing", "on_hold": "executing", "complete": "completed",
-                      "cancelled": "cancelled"}.get(order.status, "approved")
-            if status == "approved" and package_started:
-                status = "executing"
+        status = WhiteLabelService._status(row.status, order.status if order else None, package_started)
         result = dict(id=row.id, name=row.name, status=status, revision=row.revision,
                       source_lot_id=row.source_lot_id, production_order_id=row.production_order_id,
                       execution_status=order.status if order else None)
@@ -137,22 +148,15 @@ class WhiteLabelService:
             result = []
             for row in rows:
                 item = dict(row._mapping)
-                if item["execution_status"]:
-                    item["status"] = {"in_progress": "executing", "on_hold": "executing", "complete": "completed",
-                                      "cancelled": "cancelled"}.get(item["execution_status"], "approved")
-                    if item["status"] == "approved" and item["package_started"]:
-                        item["status"] = "executing"
+                item["status"] = self._status(item["status"], item["execution_status"], item["package_started"])
                 result.append(item)
             return result
 
     def get(self, org, facility, plan_id):
         with self.sessions() as session:
             row = self._get(session, org, facility, plan_id)
-            package_started = bool(row.production_order_id and session.scalar(select(PackageStudioRun.id).where(
-                PackageStudioRun.production_order_id == row.production_order_id,
-                PackageStudioRun.organization_id == org, PackageStudioRun.facility_id == facility,
-                PackageStudioRun.status == "committed").limit(1)))
-            return self._payload(row, self._order(session, row), package_started=package_started)
+            return self._payload(row, self._order(session, row),
+                                 package_started=self._package_started(session, row))
 
     def save(self, org, facility, actor, payload, plan_id=None):
         calculated = economics(payload["scenario"])
@@ -194,7 +198,8 @@ class WhiteLabelService:
         with self.sessions.begin() as session:
             row = self._get(session, org, facility, plan_id, True)
             if row.production_order_id:
-                return self._payload(row, self._order(session, row))
+                return self._payload(row, self._order(session, row),
+                                     package_started=self._package_started(session, row))
             if row.status != "draft" or row.revision != revision:
                 raise ValueError("Only the current saved draft can be approved.")
             calculated = economics(json.loads(row.scenario_json))

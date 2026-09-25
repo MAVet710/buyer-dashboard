@@ -2,8 +2,8 @@
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0080_white_label_execution"
-down_revision = "0079_security_observation"
+revision = "0082_white_label_execution"
+down_revision = "0081_wholesale_crm"
 branch_labels = None
 depends_on = None
 
@@ -39,6 +39,9 @@ def upgrade():
 
 
 def downgrade():
+    if op.get_bind().dialect.name == "postgresql":
+        op.execute("SET LOCAL lock_timeout = '5s'")
+        op.execute("LOCK TABLE white_label_plans IN ACCESS EXCLUSIVE MODE")
     if op.get_bind().execute(sa.text("SELECT 1 FROM white_label_plans LIMIT 1")).first():
         raise RuntimeError("Cannot discard saved White Label plans.")
     op.drop_table("white_label_plans")

@@ -194,7 +194,7 @@ def test_white_label_repack_keeps_the_streamlit_control_vocabulary_and_order():
     root = Path(__file__).resolve().parents[1]
     react = (root / "frontend" / "src" / "pages" / "WhiteLabelRepackPage.tsx").read_text(encoding="utf-8")
     labels = [
-        "Scenario Name", "Save Scenario", "Load Scenario", "Duplicate Scenario", "Clear Scenario",
+        "Scenario Name", "Save durable plan", "Load Scenario", "Duplicate Scenario", "Clear Scenario",
         "Apply Loaded Scenario", "Step 1: Bulk Lot", "Step 2: Costs", "Step 3: Package Plan",
         "Step 4: Results", "Step 5: Compliance", "Strain Name *", "Strain Type *",
         "Cultivator Name *", "Vendor Name *", "Bulk Weight *", "Weight Unit *", "Total Bulk Cost ($) *",

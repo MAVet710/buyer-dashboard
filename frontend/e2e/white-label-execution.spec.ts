@@ -45,6 +45,13 @@ for (const viewport of [{width:1440,height:1000},{width:390,height:844}]) {
     await page.getByRole("link",{name:"Package Studio",exact:true}).click();
     await expect(page.getByRole("heading",{name:"White Label execution handoff: Durable repack",exact:true})).toBeVisible();
     await expect(page.getByText("BULK-1: 100 g. Status: approved.",{exact:true})).toBeVisible();
+    await expect(page.getByRole("link",{name:"Label Studio",exact:true})).toHaveAttribute("href","/compliance/labels");
+    for (const [status, execution_status] of [["executing","in_progress"],["completed","complete"],["cancelled","cancelled"]]) {
+      if (saved) saved={...saved,status,execution_status};
+      await page.goto("/production/repack?plan=saved-plan");
+      await expect(page.getByText(`Plan status: ${status} / Execution: ${execution_status}`,{exact:true})).toBeVisible();
+      await expect(page.getByRole("button",{name:"Approve plan",exact:true})).toBeDisabled();
+    }
     expect(writes).toEqual(["/api/v1/white-label/plans","/api/v1/white-label/plans/saved-plan/approve"]);
   });
 }

@@ -37,17 +37,37 @@ Reads use bounded, paged plan summaries and searchable lot summaries. The
 selected plan loads its details on demand. Session storage is no longer the
 plan source of truth; the existing PDF export remains available.
 
-Apply migration `0080_white_label_execution` before enabling the new application
-code. It adds one planning table, foreign keys, a unique execution link, scope
-index and browser-role restrictions. It changes no existing business rows and
-refuses a downgrade that would discard saved plans. Deployment and PostgreSQL
-acceptance are reserved for the coordinating release worker; this implementation
-worker is explicitly limited to a local commit.
+Apply migration `0082_white_label_execution` after `0081_wholesale_crm`
+(which follows `0080_doobie_work`) before enabling the new application code.
+It adds one planning table, foreign keys, a unique execution link, scope index
+and browser-role restrictions. It changes no existing business rows. Downgrade
+refuses to discard saved plans; PostgreSQL locks the table before checking for
+evidence, with a five-second lock timeout. Empty-table rollback leaves CRM and
+Doobie Work intact.
 
-Validation: 52 focused and related backend tests passed (White Label execution,
-repack calculations, Package Studio, inventory commitments, physical production
-start, Run 360 QA/mutation previews, and migration contracts/capacity). Frontend
-lint, build and all 110 unit tests passed. Two mocked-API Chromium acceptance
-tests passed at desktop 1440px and mobile 390px, covering save, unsaved-change
-approval blocking, durable reload and execution handoff. PostgreSQL migration,
-concurrent approval and authenticated production acceptance remain release gates.
+The generalized `white_label.manage_plans` permission gates save, approval and
+cancellation. Defaults preserve dev/admin/buyer/planner/supervisor behavior;
+explicit denies apply and explicit allows cannot bypass existing role or
+facility-capability checks. Read access keeps the existing facility gates.
+Approval retries use the same status projection as list/detail, including
+committed Package Studio runs, and return the existing production order.
+
+Doobie Work retains its explicit operator-created work and linked route/entity
+fields. This integration does not create tasks automatically or add a separate
+White Label task ledger.
+
+Integration validation (September 25, 2026): 191 backend tests passed across
+White Label, repack, Package Studio, inventory commitments, production start,
+Run 360 QA/mutation previews, generalized permissions, migration contracts and
+rollback, Wholesale CRM, Doobie Work, and structured COA/label lineage. All 127
+frontend unit tests, lint and production build passed. Two mocked-API Chromium
+acceptance tests passed at desktop 1440px and mobile 390px, covering save,
+unsaved-change approval blocking, durable reload, execution handoff and
+executing/completed/cancelled display with execution and label links.
+
+Status: CODE_READY, local integration only. Rebased from the completed White
+Label commit onto CRM candidate `42a2fe3691e188443e2620aeb11aa75e51256c49`
+without Git conflicts. No push, PR, merge or deployment was performed.
+PostgreSQL live migration/RLS and concurrent approval acceptance, plus an
+unmocked authenticated browser workflow, remain future release verification;
+SQLite and SQL-contract tests do not claim those checks passed.

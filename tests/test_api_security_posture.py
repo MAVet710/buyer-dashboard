@@ -167,7 +167,7 @@ def test_api_and_operational_frontend_are_noindex():
 def _is_public_marketing_url(value: str) -> bool:
     url = urlsplit(value)
     path = unquote(url.path)
-    roots = {"consulting", "resources", "tools", "beta"}
+    roots = {"consulting", "resources", "tools", "beta", "help"}
     root = path.strip("/").split("/", 1)[0]
     return (url.scheme == "https" and url.netloc == "doobielogic.io"
             and not url.query and not url.fragment and ".." not in path.split("/")

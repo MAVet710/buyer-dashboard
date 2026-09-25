@@ -200,6 +200,13 @@ def test_execution_handoff_commits_only_at_package_boundary(setup):
         assert (output.organization_id, output.facility_id) == ("org", "facility")
     assert service.get("org", "facility", draft["id"])["status"] == "executing"
     assert service.list("org", "facility")[0]["status"] == "executing"
+    retried = service.approve("org", "facility", "planner", draft["id"], 1)
+    assert retried["production_order_id"] == approved["production_order_id"]
+    assert retried["status"] == "executing"
+    with Session(engine) as session:
+        assert session.scalar(select(func.count()).select_from(ProductionOrder)) == 1
+        from modules.repack.models import WhiteLabelPlan
+        assert session.get(WhiteLabelPlan, draft["id"]).status == "approved"
 
 
 def test_existing_reservations_are_honored_at_approval(setup):
@@ -225,7 +232,7 @@ def test_migration_matches_model_and_refuses_destructive_downgrade(setup):
     from modules.repack.models import WhiteLabelPlan
 
     engine, service, payload = setup
-    spec = importlib.util.spec_from_file_location("white_label_migration", "migrations/versions/0080_white_label_execution.py")
+    spec = importlib.util.spec_from_file_location("white_label_migration", "migrations/versions/0082_white_label_execution.py")
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
     WhiteLabelPlan.__table__.drop(engine)
@@ -238,3 +245,136 @@ def test_migration_matches_model_and_refuses_destructive_downgrade(setup):
         migration.op = Operations(MigrationContext.configure(connection))
         with pytest.raises(RuntimeError, match="Cannot discard"):
             migration.downgrade()
+
+
+@pytest.mark.parametrize("mutation", ["facility", "organization", "hold", "no_coa", "wrong_qa_scope", "inactive", "unit", "ledger_unit", "quantity"])
+def test_approval_rechecks_changed_source_without_posting_inventory(setup, mutation):
+    engine, service, payload = setup
+    draft = save(service, payload)
+    with Session(engine) as session:
+        lot = session.get(InventoryLot, "lot")
+        quality = session.get(LotQualityEvidence, "lot")
+        product = session.get(Product, "product")
+        if mutation == "facility": lot.facility_id = "other"
+        if mutation == "organization":
+            # Simulate an externally corrupted reference, beyond ORM integrity hooks.
+            session.execute(InventoryLot.__table__.update().where(InventoryLot.id == "lot").values(organization_id="outside"))
+        if mutation == "hold": lot.status = "quarantine"
+        if mutation == "no_coa": quality.coa_reference = ""
+        if mutation == "wrong_qa_scope": quality.facility_id = "other"
+        if mutation == "inactive": product.active = False
+        if mutation == "unit": product.base_unit = "unit"
+        if mutation == "ledger_unit": product.base_unit = "kg"
+        if mutation == "quantity":
+            session.add(InventoryTransaction(organization_id="org", facility_id="facility", lot_id="lot",
+                transaction_type="adjustment", quantity_delta=-950, unit="g", actor="other-executor"))
+        session.commit()
+        count = session.scalar(select(func.count()).select_from(InventoryTransaction))
+    with pytest.raises(ValueError):
+        service.approve("org", "facility", "planner", draft["id"], 1)
+    with Session(engine) as session:
+        assert session.scalar(select(func.count()).select_from(ProductionOrder)) == 0
+        assert session.scalar(select(func.count()).select_from(MaterialReservation)) == 0
+        assert session.scalar(select(func.count()).select_from(InventoryTransaction)) == count
+    assert service.get("org", "facility", draft["id"])["status"] == "draft"
+
+
+def test_permission_allow_does_not_bypass_existing_role_or_capability(setup):
+    from backend.app.routers.white_label import _scope
+    from modules.coman.permissions import AppUserPermissionOverride
+    from fastapi import HTTPException
+    engine, _, _ = setup
+    with Session(engine) as session:
+        session.add(AppUserPermissionOverride(user_id="actor", organization_id="org", facility_id="facility",
+            permission="white_label.manage_plans", effect="allow", created_by="admin", updated_by="admin"))
+        session.commit()
+    with pytest.raises(HTTPException) as denied:
+        _scope(RequestContext("actor", "org", "facility", "read_only"), engine, write=True)
+    assert denied.value.status_code == 403
+    with Session(engine) as session:
+        facility = session.get(Facility, "facility")
+        facility.production_enabled = False
+        facility.retail_enabled = True
+        session.commit()
+    with pytest.raises(HTTPException) as denied:
+        _scope(RequestContext("actor", "org", "facility", "planner"), engine, write=True, approve=True)
+    assert denied.value.status_code == 403
+
+
+def test_crm_to_white_label_chain_and_empty_rollback_preserve_crm(setup):
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from sqlalchemy import inspect
+    from modules.repack.models import WhiteLabelPlan
+    scripts = ScriptDirectory.from_config(Config("alembic.ini"))
+    assert scripts.get_heads() == ["0082_white_label_execution"]
+    revision = scripts.get_revision("0082_white_label_execution")
+    assert revision.down_revision == "0081_wholesale_crm"
+    assert scripts.get_revision(revision.down_revision).down_revision == "0080_doobie_work"
+    engine, _, _ = setup
+    WhiteLabelPlan.__table__.drop(engine)
+    with engine.begin() as connection, Operations.context(MigrationContext.configure(connection)):
+        # The seeded model schema represents the integrated CRM candidate.
+        before = set(inspect(connection).get_table_names())
+        assert "commercial_quotes" in before
+        revision.module.upgrade()
+        assert set(inspect(connection).get_table_names()) == before | {"white_label_plans"}
+        revision.module.downgrade()
+        assert set(inspect(connection).get_table_names()) == before
+        revision.module.upgrade()
+        assert set(inspect(connection).get_table_names()) == before | {"white_label_plans"}
+
+
+def test_postgres_rollback_locks_before_checking_evidence(monkeypatch):
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+    from types import SimpleNamespace
+    migration = ScriptDirectory.from_config(Config("alembic.ini")).get_revision("0082_white_label_execution").module
+    calls = []
+    class Connection:
+        dialect = SimpleNamespace(name="postgresql")
+        def execute(self, statement):
+            calls.append(str(statement))
+            return SimpleNamespace(first=lambda: (1,))
+    monkeypatch.setattr(migration, "op", SimpleNamespace(get_bind=lambda: Connection(),
+        execute=lambda statement: calls.append(statement), drop_table=lambda table: pytest.fail("Evidence was dropped")))
+    with pytest.raises(RuntimeError, match="Cannot discard"):
+        migration.downgrade()
+    assert calls == ["SET LOCAL lock_timeout = '5s'", "LOCK TABLE white_label_plans IN ACCESS EXCLUSIVE MODE",
+                     "SELECT 1 FROM white_label_plans LIMIT 1"]
+
+
+@pytest.mark.parametrize("mutation", ["cancelled", "complete", "on_hold", "no_coa", "unit", "commitment", "scope"])
+def test_package_commit_revalidates_handoff_and_rolls_back(setup, mutation):
+    from modules.package_studio.models import PackageStudioRun
+    engine, service, payload = setup
+    draft = save(service, payload)
+    approved = service.approve("org", "facility", "planner", draft["id"], 1)
+    with Session(engine) as session:
+        order = session.get(ProductionOrder, approved["production_order_id"])
+        if mutation in {"cancelled", "complete", "on_hold"}:
+            session.execute(ProductionOrder.__table__.update().where(ProductionOrder.id == order.id).values(status=mutation))
+        if mutation == "no_coa": session.get(LotQualityEvidence, "lot").coa_reference = ""
+        if mutation == "unit": session.get(Product, "product").base_unit = "kg"
+        if mutation == "scope":
+            session.execute(ProductionOrder.__table__.update().where(ProductionOrder.id == order.id).values(facility_id="other"))
+        if mutation == "commitment":
+            other = ProductionOrder(organization_id="org", facility_id="facility", order_number="OTHER", work_type="internal",
+                product_name="Other", product_format="bulk", requested_units=1, status="draft", created_by="planner", updated_by="planner")
+            session.add(other)
+            session.flush()
+            session.add(MaterialReservation(organization_id="org", facility_id="facility", production_order_id=other.id,
+                lot_id="lot", quantity=950, unit="g", status="reserved", reserved_by="planner"))
+        session.commit()
+    plan = PackageStudioPlan(action_type="pack_down", production_order_id=approved["production_order_id"],
+        inputs=(PackageStudioInputPlan(lot_id="lot", quantity=100, unit="g"),),
+        outputs=(PackageStudioOutputPlan(product_id="product", lot_code="OUTPUT", inventory_quantity=100,
+            inventory_unit="g", source_equivalent_quantity=100, source_equivalent_unit="g"),), source_unit="g")
+    with pytest.raises(ValueError):
+        PackageStudioService(engine).commit(plan, organization_id="org", facility_id="facility", actor="operator")
+    with Session(engine) as session:
+        assert session.scalar(select(func.count()).select_from(PackageStudioRun)) == 0
+        assert session.scalar(select(func.count()).select_from(InventoryTransaction)) == 1
+        assert session.scalar(select(func.count()).select_from(InventoryLot)) == 1
