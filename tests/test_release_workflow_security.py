@@ -95,7 +95,8 @@ def test_pc_hosted_release_is_validation_only_and_preserves_operator_url_and_sup
 def test_public_runtime_latency_gate_uses_ops_domain_and_pc_hosted_path():
     source = _workflow("post-deploy-performance-smoke.yml")
     assert "PRODUCTION_ORIGIN: https://ops.doobielogic.io" in source
-    assert "$PRODUCTION_ORIGIN/health/ready" in source
+    assert "$PRODUCTION_ORIGIN/api/v1/health/ready" in source
+    assert "$PRODUCTION_ORIGIN/health/ready" not in source
     assert "RUNTIME_RECOVERY_LIMIT_SECONDS" in source
     assert "WARM_P95_LIMIT_SECONDS" in source
     assert "schema_matches == true" in source

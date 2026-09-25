@@ -815,11 +815,14 @@ def test_api_request_ids_stable_errors_and_database_readiness():
     headers = {"X-Organization-Id": "org-1", "X-Facility-Id": "facility-1", "X-Request-ID": "browser-test-123"}
     try:
         ready = client.get("/health/ready", headers=headers)
+        public_ready = client.get("/api/v1/health/ready", headers=headers)
         missing = client.get("/api/v1/product-master/not-real", headers=headers)
         invalid = client.post("/api/v1/product-master", headers={**headers, "X-User-Role": "admin"}, json={"sku": ""})
     finally: app.dependency_overrides.clear()
     assert ready.status_code == 200
     assert ready.json()["status"] == "ready"
+    assert public_ready.status_code == 200
+    assert public_ready.json() == ready.json()
     assert ready.headers["X-Request-ID"] == "browser-test-123"
     assert ready.headers["X-Content-Type-Options"] == "nosniff"
     assert missing.status_code == 404
