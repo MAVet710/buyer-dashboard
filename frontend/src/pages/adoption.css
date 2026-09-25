@@ -24,3 +24,5 @@
 .adoption-page textarea { min-height: 88px; resize: vertical; }
 .adoption-page button { margin: 4px 8px 4px 0; min-height: 40px; white-space: normal; }
 .adoption-page form button { justify-self: start; }
+.wizard-steps, .wizard-navigation { display: flex; flex-wrap: wrap; gap: 6px; margin-block: 16px; }
+.wizard-steps button { flex: 1 1 130px; }

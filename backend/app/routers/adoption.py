@@ -8,12 +8,13 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
-from modules.coman.models import new_id
+from modules.coman.models import Facility, new_id
 from ..auth import RequestContext, get_request_context, require_facility_capability
 from ..config import Settings, get_settings
 from ..database import get_engine
 from ..services.adoption_models import ReadinessAnnotation, ReportDelivery, ReportSubscription
 from ..services.implementation_readiness import ITEMS, MANUAL_ITEMS, readiness, scope
+from ..services.integration_wizard import PROVIDERS, wizard
 from ..services.scheduled_reports import REPORT_CAPABILITIES, audit, deliver, next_occurrence, process_due, public
 
 router = APIRouter(tags=["implementation-and-reporting"])
@@ -62,8 +63,56 @@ class RunInput(BaseModel):
 
 
 @router.get("/implementation-readiness")
-def get_readiness(context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
-    return readiness(engine, context)
+def get_readiness(context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine), settings: Settings = Depends(get_settings)):
+    result = readiness(engine, context)
+    for item in wizard(engine, settings, context)["items"]:
+        result["items"].append({**item, "key": "wizard_" + item["key"], "label": item["label"] + " setup",
+            "manual": False, "manual_status": None, "notes": "", "owner": "", "target_date": None})
+    return result
+
+
+class WizardProgress(BaseModel):
+    step: Literal["facility", "systems", "connect", "validate", "map", "evidence", "summary"]
+
+
+class WizardChoice(BaseModel):
+    skipped: bool
+
+
+@router.get("/integration-wizard")
+def get_wizard(context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine), settings: Settings = Depends(get_settings)):
+    return wizard(engine, settings, context)
+
+
+def save_wizard_annotation(key, notes, context, engine):
+    with Session(engine) as session:
+        if not session.scalar(select(Facility.id).where(Facility.id == context.facility_id, Facility.organization_id == context.organization_id)):
+            raise HTTPException(404, "Facility not found in this organization.")
+        row = session.scalar(select(ReadinessAnnotation).where(*scope(ReadinessAnnotation, context), ReadinessAnnotation.item_key == key).with_for_update())
+        before = {"notes": row.notes} if row else None
+        if row is None:
+            row = ReadinessAnnotation(id=new_id(), organization_id=context.organization_id, facility_id=context.facility_id, item_key=key)
+            session.add(row)
+        row.notes, row.updated_by, row.updated_at = notes, context.user_id, datetime.now(timezone.utc)
+        audit(session, context, row, "integration_wizard_saved", before=before, after={"notes": notes})
+        session.commit()
+
+
+@router.post("/integration-wizard/progress")
+def wizard_progress(payload: WizardProgress, context: RequestContext = Depends(admin), engine: Engine = Depends(get_engine)):
+    save_wizard_annotation("wizard_progress", json.dumps({"step": payload.step}), context, engine)
+    return {"step": payload.step}
+
+
+@router.post("/integration-wizard/providers/{provider}")
+def wizard_choice(provider: str, payload: WizardChoice, context: RequestContext = Depends(admin), engine: Engine = Depends(get_engine), settings: Settings = Depends(get_settings)):
+    if provider not in PROVIDERS:
+        raise HTTPException(404, "Provider not supported.")
+    item = next(item for item in wizard(engine, settings, context)["items"] if item["key"] == provider)
+    if payload.skipped and item["required"]:
+        raise HTTPException(422, "Required providers cannot be skipped. Resolve the remaining evidence or review the facility operating mode.")
+    save_wizard_annotation("wizard_" + provider, "skipped" if payload.skipped else "selected", context, engine)
+    return {"provider": provider, "skipped": payload.skipped}
 
 
 @router.post("/implementation-readiness/{item_key}")

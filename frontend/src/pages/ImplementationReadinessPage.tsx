@@ -19,7 +19,7 @@ function ChecklistItem({ item, canManage, onNavigate }: { item: Item; canManage:
   return <article className="inventory-panel">
     <h2>{item.label}</h2><strong>{item.status.replaceAll("_", " ")}</strong><p>{item.evidence}</p>
     <button className="secondary" onClick={() => onNavigate(item.route)}>Open {item.route}</button>
-    {canManage ? <form onSubmit={event => { event.preventDefault(); save.mutate(); }}>
+    {canManage && !item.key.startsWith("wizard_") ? <form onSubmit={event => { event.preventDefault(); save.mutate(); }}>
       <label>Owner<input value={owner} maxLength={160} onChange={event => setOwner(event.target.value)} /></label>
       <label>Target date<input type="date" value={target} onChange={event => setTarget(event.target.value)} /></label>
       <label>Notes<textarea value={notes} maxLength={4000} onChange={event => setNotes(event.target.value)} /></label>
@@ -36,6 +36,7 @@ function ChecklistItem({ item, canManage, onNavigate }: { item: Item; canManage:
 export function ImplementationReadinessPage({ onNavigate }: { onNavigate: (page: string) => void }) {
   const query = useQuery({ queryKey: ["implementation-readiness"], queryFn: ({ signal }) => apiGet<Checklist>("/api/v1/implementation-readiness", signal) });
   return <div className="page adoption-page"><h1>Implementation Readiness</h1>
+    <button className="primary" onClick={() => onNavigate("Integration Wizard")}>Start or resume Integration Wizard</button>
     <p>Readiness for the selected facility, derived from current records. Manual reviews require supporting notes. A configured credential does not verify an operational workflow.</p>
     {query.isPending && <p role="status">Loading readiness...</p>}
     {query.isError && <p role="alert">{query.error.message}</p>}

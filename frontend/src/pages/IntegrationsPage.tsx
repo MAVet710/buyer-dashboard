@@ -18,12 +18,17 @@ type AlphaOperatingMode = {
   message: string;
 };
 
-export function IntegrationsPage() {
+export function IntegrationsPage({ onNavigate, initialProvider }: { onNavigate?: (page: string) => void; initialProvider?: string }) {
   const client = useQueryClient();
   const mode = useQuery({ queryKey: ["alpha-operating-mode"], queryFn: ({ signal }) => apiGet<AlphaOperatingMode>("/api/v1/alpha-operating-mode", signal), retry: false });
   const data = useQuery({ queryKey: ["integrations"], queryFn: ({ signal }) => apiGet<Payload>("/api/v1/integrations", signal), retry: false });
   const native = useQuery({ queryKey: ["native-integrations"], queryFn: ({ signal }) => apiGet<NativePayload>("/api/v1/native-integrations", signal), retry: false });
+  useEffect(() => {
+    if (initialProvider) document.getElementById(`integration-${initialProvider}`)?.scrollIntoView({ block: "start" });
+  }, [initialProvider, data.data, native.data]);
   const refresh = () => {
+    client.invalidateQueries({ queryKey: ["integration-wizard"] });
+    client.invalidateQueries({ queryKey: ["implementation-readiness"] });
     client.invalidateQueries({ queryKey: ["alpha-operating-mode"] });
     client.invalidateQueries({ queryKey: ["integrations"] });
     client.invalidateQueries({ queryKey: ["native-integrations"] });
@@ -32,6 +37,7 @@ export function IntegrationsPage() {
   const devMode = Boolean(data.data?.doobie || data.data?.ai_runtime || data.data?.spacemail);
   const metrcEnabled = mode.data?.effective_mode === "metrc_sandbox";
   return <div className="page">
+    {onNavigate && <button className="primary" onClick={() => onNavigate("Integration Wizard")}>Resume Integration Wizard</button>}
     <div className="page-heading"><div><div className="eyebrow">Alpha operating mode</div><h1>Choose how this facility runs</h1><p>Use DoobieLogic by itself during alpha, or opt into the connected Metrc sandbox when you are ready. The selection is facility-specific and can be changed later.</p></div></div>
     {mode.isError ? <div className="state error">{mode.error.message}</div> : null}
     {mode.data ? <AlphaOperatingModeCard value={mode.data} onSaved={refresh}/> : null}
@@ -173,7 +179,8 @@ function DoobieCard({ value, onSaved }: { value: Integration; onSaved: () => voi
 }
 
 function IntegrationCard({ title, description, value, children }: PropsWithChildren<{ title: string; description: string; value: Integration }>) {
-  return <section className="inventory-panel integration-card"><header><div><h2>{title}</h2><p>{description}</p></div><span className={`badge ${value.status === "connected" ? "production-ready" : value.status === "failed" ? "hold" : ""}`}>{value.status.replaceAll("_", " ")}</span></header>{children}<footer><span>Saved key: {value.secret_hint || "(not set)"}</span><span>Status: {value.status}</span><span>Last validated: {value.last_validated_at ? new Date(value.last_validated_at).toLocaleString() : "never"}</span>{value.last_error ? <span className="form-error">{value.last_error}</span> : null}</footer></section>;
+  const provider = ({ METRC: "metrc", BioTrack: "biotrack", "QuickBooks Online": "quickbooks", "Spacemail Onboarding & Support": "spacemail", "DoobieLogic Local AI Runtime": "ai_runtime", Doobie: "doobie" } as Record<string, string>)[title];
+  return <section id={`integration-${provider}`} className="inventory-panel integration-card"><header><div><h2>{title}</h2><p>{description}</p></div><span className={`badge ${value.status === "connected" ? "production-ready" : value.status === "failed" ? "hold" : ""}`}>{value.status.replaceAll("_", " ")}</span></header>{children}<footer><span>Saved key: {value.secret_hint || "(not set)"}</span><span>Status: {value.status}</span><span>Last validated: {value.last_validated_at ? new Date(value.last_validated_at).toLocaleString() : "never"}</span>{value.last_error ? <span className="form-error">{value.last_error}</span> : null}</footer></section>;
 }
 
 function Actions({ save, test, clear, disabled, pending }: { save: () => void; test: () => void; clear: () => void; disabled: boolean; pending: boolean }) {

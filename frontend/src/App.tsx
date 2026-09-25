@@ -39,6 +39,7 @@ const DataSettingsPage = lazy(() => import("./pages/DataSettingsPage").then(modu
 const LocationSettingsPage = lazy(() => import("./pages/LocationSettingsPage").then(module => ({ default: module.LocationSettingsPage })));
 const AdminToolsPage = lazy(() => import("./pages/AdminToolsPage").then(module => ({ default: module.AdminToolsPage })));
 const IntegrationsPage = lazy(() => import("./pages/IntegrationsPage").then(module => ({ default: module.IntegrationsPage })));
+const IntegrationWizardPage = lazy(() => import("./pages/IntegrationWizardPage").then(module => ({ default: module.IntegrationWizardPage })));
 const DeveloperConnectionsPanel = lazy(() => import("./components/DeveloperConnectionsPanel").then(module => ({ default: module.DeveloperConnectionsPanel })));
 const MAFlowerEquivalencyPage = lazy(() => import("./pages/MAFlowerEquivalencyPage").then(module => ({ default: module.MAFlowerEquivalencyPage })));
 const NomenclatureMapperPage = lazy(() => import("./pages/NomenclatureMapperPage").then(module => ({ default: module.NomenclatureMapperPage })));
@@ -141,12 +142,13 @@ export default function App() {
     : page === "MA Flower Equivalency" ? <MAFlowerEquivalencyPage />
     : page === "Nomenclature Mapper" || page === "Product Name Mapper" ? <NomenclatureMapperPage />
     : page === "Implementation Readiness" ? <ImplementationReadinessPage onNavigate={navigate} />
+    : page === "Integration Wizard" ? <IntegrationWizardPage onNavigate={navigate} />
     : page === "Scheduled Reports" ? <ScheduledReportsPage />
     : page === "Executive Reports" ? <ExecutiveReportsPage />
     : page === "Operations Control Tower" ? <OperationsControlTowerPage onNavigate={navigate} />
     : page === "Enterprise Control Tower" ? <EnterpriseControlPage onNavigate={navigate} />
     : page === "Doobie" ? <DoobiePage />
-    : page === "Integrations" || page === "AI & METRC Integrations" || page === "METRC Integrations" ? <><IntegrationsPage /><DeveloperConnectionsPanel /></>
+    : page === "Integrations" || page === "AI & METRC Integrations" || page === "METRC Integrations" ? <><IntegrationsPage onNavigate={navigate} initialProvider={new URLSearchParams(location.search).get("provider") ?? undefined} /><DeveloperConnectionsPanel /></>
     : page === "Admin" || page === "Admin Tools" ? <AdminToolsPage />
     : page === "Location Settings" ? <LocationSettingsPage />
     : page === "Data & Settings" ? <DataSettingsPage onNavigate={navigate} />

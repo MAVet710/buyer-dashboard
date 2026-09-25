@@ -148,6 +148,7 @@ function secondaryItems(category: PrimaryCategory, operation: OperationMode, rol
 function dataSettingsItems(role: string): SecondaryItem[] {
   const rows: SecondaryItem[] = [
     { label: "Implementation Readiness", page: "Implementation Readiness" },
+    { label: "Integration Wizard", page: "Integration Wizard" },
     { label: "Location", page: "Location Settings" },
     { label: "Imports & Data", page: "Data & Settings" },
   ];
