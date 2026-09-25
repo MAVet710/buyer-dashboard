@@ -35,6 +35,61 @@ class Base(DeclarativeBase):
     pass
 
 
+class WorkFields:
+    """References describe linked work; domain records remain authoritative."""
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="RESTRICT"))
+    facility_id: Mapped[str] = mapped_column(ForeignKey("coman_facilities.id", ondelete="RESTRICT"))
+    title: Mapped[str] = mapped_column(String(240))
+    description: Mapped[str] = mapped_column(Text, default="")
+    priority: Mapped[str] = mapped_column(String(16), default="medium")
+    assignee_id: Mapped[str | None] = mapped_column(ForeignKey("app_users.id", ondelete="RESTRICT"))
+    entity_type: Mapped[str] = mapped_column(String(80), default="")
+    entity_id: Mapped[str] = mapped_column(String(255), default="")
+    workspace: Mapped[str] = mapped_column(String(120), default="")
+    route: Mapped[str] = mapped_column(String(1000), default="")
+    created_by: Mapped[str] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class WorkTemplate(WorkFields, Base):
+    __tablename__ = "doobie_work_templates"
+    __table_args__ = (
+        CheckConstraint("frequency in ('daily','weekly','monthly')", name="ck_work_template_frequency"),
+        CheckConstraint("priority in ('low','medium','high','critical')", name="ck_work_template_priority"),
+        Index("ix_work_template_scope_active", "organization_id", "facility_id", "active"),
+    )
+    frequency: Mapped[str] = mapped_column(String(16))
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_occurrence: Mapped[int] = mapped_column(Integer, default=0)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class WorkItem(WorkFields, Base):
+    __tablename__ = "doobie_work_items"
+    __table_args__ = (
+        CheckConstraint("status in ('open','in_progress','blocked','completed')", name="ck_work_status"),
+        CheckConstraint("priority in ('low','medium','high','critical')", name="ck_work_priority"),
+        CheckConstraint("status != 'blocked' OR length(blocked_reason) > 0", name="ck_work_blocked"),
+        CheckConstraint("(status = 'completed' AND completed_at IS NOT NULL AND completed_by IS NOT NULL) OR (status != 'completed' AND completed_at IS NULL AND completed_by IS NULL)", name="ck_work_completion"),
+        UniqueConstraint("template_id", "occurrence_at", name="uq_work_occurrence"),
+        Index("ix_work_scope_status_due", "organization_id", "facility_id", "status", "due_at"),
+        Index("ix_work_scope_assignee_due", "organization_id", "facility_id", "assignee_id", "due_at"),
+    )
+    status: Mapped[str] = mapped_column(String(16), default="open")
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_by: Mapped[str | None] = mapped_column(String(36))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    blocked_reason: Mapped[str] = mapped_column(String(2000), default="")
+    notes: Mapped[str] = mapped_column(Text, default="")
+    evidence: Mapped[str] = mapped_column(Text, default="")
+    template_id: Mapped[str | None] = mapped_column(ForeignKey("doobie_work_templates.id", ondelete="RESTRICT"))
+    occurrence_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

@@ -11,6 +11,7 @@ type RouteEntry = {
 
 const ROUTES: RouteEntry[] = [
   { page: "Home", path: "/home", aliases: ["/"] },
+  { page: "Work Queue", path: "/work" },
   { page: "Operations Control Tower", path: "/home/control-tower" },
   { page: "Enterprise Control Tower", path: "/home/enterprise" },
 

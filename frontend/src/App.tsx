@@ -6,6 +6,7 @@ import { WorkspaceWindow } from "./components/WorkspaceWindow";
 import { entityContextForPath, pageForPath, pathForPage } from "./lib/workspaceRoutes";
 
 const HomePage = lazy(() => import("./pages/HomePage").then(module => ({ default: module.HomePage })));
+const WorkQueuePage = lazy(() => import("./pages/WorkQueuePage").then(module => ({ default: module.WorkQueuePage })));
 const InventoryPage = lazy(() => import("./pages/InventoryPage").then(module => ({ default: module.InventoryPage })));
 const InventoryTransfersPage = lazy(() => import("./pages/InventoryTransfersPage").then(module => ({ default: module.InventoryTransfersPage })));
 const FocusedInventoryAudits = lazy(() => import("./components/FocusedInventoryAudits").then(module => ({ default: module.FocusedInventoryAudits })));
@@ -101,6 +102,7 @@ export default function App() {
   }, [client]);
 
   const content = page === "Home" ? <HomePage onNavigate={navigate} />
+    : page === "Work Queue" ? <WorkQueuePage onNavigate={navigate} />
     : page === "Buyer Operations" || page === "Purchasing" ? <BuyerCommandCenterPage onNavigate={setPage} />
     : page === "Inventory" ? <InventoryPage initialOperation="retail" onNavigate={navigate} />
     : page === "Retail Inventory Transfers" ? <InventoryTransfersPage operation="retail" />
