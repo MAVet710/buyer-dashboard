@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time
+from contextlib import nullcontext
 import json
 from typing import Any
 
@@ -23,6 +24,7 @@ from modules.coman.models import (
     utc_now,
 )
 from modules.commercial_finance.models import CommercialShipment
+from modules.coman.audit import record_audit_event
 from modules.inventory_availability.service import InventoryAvailabilityService
 
 
@@ -80,6 +82,8 @@ class CommercialRepository:
         actor: str,
         external_reference: str = "",
         notes: str = "",
+        session: Session | None = None,
+        correlation_id: str = "",
     ) -> CommercialOrder:
         normalized_type = str(order_type).strip().lower()
         if normalized_type not in {"sales", "purchase"}:
@@ -89,7 +93,7 @@ class CommercialRepository:
             raise ValueError("Order number is required.")
         if not lines:
             raise ValueError("At least one order line is required.")
-        with self._session_factory.begin() as session:
+        with (nullcontext(session) if session is not None else self._session_factory.begin()) as session:
             facility = session.get(Facility, facility_id)
             if not facility or facility.organization_id != organization_id:
                 raise ValueError("Facility does not belong to the organization.")
@@ -136,7 +140,10 @@ class CommercialRepository:
                     unit_price=unit_price,
                     notes=str(raw.get("notes") or ""),
                 ))
-            self._audit(session, organization_id, facility_id, "commercial_order", order.id, "created", actor, {"order_number": clean_number, "order_type": normalized_type, "partner_id": partner.id, "line_count": len(lines)})
+            record_audit_event(session, organization_id=organization_id, facility_id=facility_id,
+                entity_type="commercial_order", entity_id=order.id, action="created", actor=actor,
+                correlation_id=correlation_id,
+                changes={"order_number": clean_number, "order_type": normalized_type, "partner_id": partner.id, "line_count": len(lines)})
         return order
 
     def list_orders(self, organization_id: str, facility_id: str, *, open_only: bool = False) -> list[CommercialOrder]:

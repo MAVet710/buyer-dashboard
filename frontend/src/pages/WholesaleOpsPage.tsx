@@ -11,7 +11,9 @@ const OrdersPage = lazy(() => import("./OrdersPage").then(module => ({ default: 
 const WarehousePickPackPage = lazy(() => import("./WarehousePickPackPage").then(module => ({ default: module.WarehousePickPackPage })));
 const WholesaleAccountingPanel = lazy(() => import("./WholesaleAccountingPanel").then(module => ({ default: module.WholesaleAccountingPanel })));
 
-type Tab = "overview" | "inventory" | "orders" | "fulfillment" | "customers" | "accounting" | "storefront";
+const WholesaleCRMPanel = lazy(() => import("./WholesaleCRMPanel").then(module => ({ default: module.WholesaleCRMPanel })));
+
+type Tab = "pipeline" | "overview" | "inventory" | "orders" | "fulfillment" | "customers" | "accounting" | "storefront";
 type WholesaleLot = {
   lot_id:string; package_id:string; lot_code:string; product_id:string; sku:string; name:string; item_type:string;
   inventory_type:"bulk"|"retail_ready"; available:number; reserved:number; usable:number; unit:string; location:string;
@@ -69,6 +71,7 @@ const TABS:[Tab,string][] = [
   ["orders","Orders"],
   ["fulfillment","Fulfillment"],
   ["customers","Customers"],
+  ["pipeline","Pipeline"],
   ["accounting","Accounting"],
   ["storefront","Storefront"],
 ];
@@ -80,7 +83,7 @@ function DeferredWorkspace({children}:{children:React.ReactNode}) {
 export function WholesaleOpsPage({onNavigate}:{onNavigate:(page:string)=>void}) {
   const [tab,setTab]=useState<Tab>("overview");
   const inventoryNeeded=tab==="overview"||tab==="inventory";
-  const commercialNeeded=tab==="overview"||tab==="customers";
+  const commercialNeeded=tab==="overview";
   const storefrontNeeded=tab==="overview"||tab==="storefront";
   const inventory=useQuery({
     queryKey:["wholesale-inventory"],
@@ -123,7 +126,7 @@ export function WholesaleOpsPage({onNavigate}:{onNavigate:(page:string)=>void}) 
     {tab==="inventory"?<WholesaleInventoryPanel query={inventory}/>:null}
     {tab==="orders"?<DeferredWorkspace><OrdersPage/></DeferredWorkspace>:null}
     {tab==="fulfillment"?<DeferredWorkspace><WarehousePickPackPage onNavigate={page=>page==="Orders"?setTab("orders"):onNavigate(page)}/></DeferredWorkspace>:null}
-    {tab==="customers"?<CustomersPanel commercial={commercial.data} loading={commercial.isLoading} error={commercial.isError?commercial.error.message:""}/>:null}
+    {tab==="customers"||tab==="pipeline"?<DeferredWorkspace><WholesaleCRMPanel key={tab} pipeline={tab==="pipeline"}/></DeferredWorkspace>:null}
     {tab==="accounting"?<DeferredWorkspace><WholesaleAccountingPanel onNavigate={onNavigate}/></DeferredWorkspace>:null}
     {tab==="storefront"?<DeferredWorkspace><StorefrontSalesUnitManager/><CommerceStorefrontManager/></DeferredWorkspace>:null}
   </div>;
@@ -228,13 +231,6 @@ function WholesaleInventoryPanel({query}:{query:UseQueryResult<WholesaleInventor
       {!rows.length?<div className="info-banner">No inventory matches this wholesale view.</div>:<div className="table-wrap"><table><thead><tr><th>Type</th><th>Product</th><th>Package / Lot</th><th>COA</th><th>Available</th><th>Reserved</th><th>Sellable</th><th>Location</th><th>Status</th></tr></thead><tbody>{rows.map(row=><tr key={row.lot_id}><td><span className="status-pill">{row.inventory_type==="bulk"?"Bulk":"Retail Ready"}</span></td><td><strong>{row.name}</strong><br/><small>{row.sku}</small></td><td>{row.package_id}<br/><small>{row.lot_code}</small></td><td>{row.coa_reference||"Missing"}<br/><small>{row.lab_testing_state||"No lab state"}</small></td><td>{number(row.available)} {row.unit}</td><td>{number(row.reserved)} {row.unit}</td><td><strong>{number(row.usable)} {row.unit}</strong></td><td>{row.location||"—"}</td><td>{showBlocked&&row.blocked_reasons.length?<span title={row.blocked_reasons.join("; ")} className="warning-text">Blocked</span>:<span className="success-text">Sellable</span>}</td></tr>)}</tbody></table></div>}
     </section>
   </>;
-}
-
-function CustomersPanel({commercial,loading,error}:{commercial:CommercialWorkspace|undefined;loading:boolean;error:string}) {
-  const customers=(commercial?.partners??[]).filter(row=>row.active&&["customer","both"].includes(row.partner_type));
-  if(loading)return <div className="state">Loading wholesale customers…</div>;
-  if(error)return <div className="warning-banner">Customers could not be loaded: {error}</div>;
-  return <section className="inventory-panel"><div className="eyebrow">WHOLESALE ACCOUNTS</div><h2>Customers</h2><p className="section-note">Retailer and trade-account records already used by Commercial Ops. Their order history, terms, and private portal access remain connected to the same partner identity.</p>{!customers.length?<div className="info-banner">No active wholesale customers are configured yet. Create customer trade partners from the Orders workspace.</div>:<div className="table-wrap"><table><thead><tr><th>Customer</th><th>License / Registration</th><th>Contact</th><th>Email</th><th>Phone</th><th>Terms</th></tr></thead><tbody>{customers.map(row=><tr key={row.id}><td><strong>{row.name}</strong></td><td>{row.license_or_registration||"—"}</td><td>{row.contact_name||"—"}</td><td>{row.contact_email||"—"}</td><td>{row.contact_phone||"—"}</td><td>{row.payment_terms||"—"}</td></tr>)}</tbody></table></div>}</section>;
 }
 
 function Metric({label,value,meta}:{label:string;value:string|number;meta:string}){return <article className="metric"><span>{label}</span><strong>{value}</strong><small>{meta}</small></article>}
