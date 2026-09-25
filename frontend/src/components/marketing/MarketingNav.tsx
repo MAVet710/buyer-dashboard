@@ -52,6 +52,7 @@ export function MarketingNav() {
               ["Intelligence", "/#intelligence"],
               ["Consulting", "/consulting"],
               ["Resources", "/resources"],
+              ["Help", "/help"],
             ].map(([label, id]) => (
               <a href={id} key={id} onClick={() => setOpen(false)}>
                 {label}

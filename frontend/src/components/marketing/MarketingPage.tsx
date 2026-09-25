@@ -69,6 +69,7 @@ export function MarketingFooter() {
           <a href="/#resources">Questions &amp; answers</a>
           <a href="/consulting">Consulting</a>
           <a href="/resources">Operator resources</a>
+          <a href="/help">Help Center</a>
           <a href="/beta#program">Beta Partner Program</a>
           <a
             href={APP_URL}
