@@ -20,14 +20,16 @@ class BetaApplication(BaseModel):
     role: str = Field(min_length=2, max_length=120)
     operation: str = Field(min_length=2, max_length=80)
     facilities: str = Field(min_length=1, max_length=40)
+    primary_workflow: str = Field(default="", max_length=120)
     stack: str = Field(default="", max_length=240)
     state: str = Field(min_length=2, max_length=80)
+    timeline: str = Field(default="", max_length=80)
     pain: str = Field(min_length=10, max_length=4000)
     must_have: str = Field(default="", max_length=4000)
     consent: bool
     website: str = Field(default="", max_length=200)
 
-    @field_validator("name", "company", "role", "operation", "facilities", "stack", "state", "pain", "must_have", "website")
+    @field_validator("name", "company", "role", "operation", "facilities", "primary_workflow", "stack", "state", "timeline", "pain", "must_have", "website")
     @classmethod
     def strip_text(cls, value: str) -> str:
         return value.strip()
@@ -59,7 +61,9 @@ def submit_beta_application(
     details = "\n".join(
         [
             f"Beta facilities / licenses: {payload.facilities}",
+            f"Primary pilot workflow: {payload.primary_workflow or 'Not provided'}",
             f"Primary POS / ERP: {payload.stack or 'Not provided'}",
+            f"Desired beta start: {payload.timeline or 'Not provided'}",
             "",
             "What would make DoobieLogic indispensable:",
             payload.must_have or "Not provided",

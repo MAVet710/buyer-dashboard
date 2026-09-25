@@ -76,7 +76,7 @@ export function MarketingNav() {
                 })
               }
             >
-              Apply for beta <ArrowUpRight size={16} />
+              Founding beta <ArrowUpRight size={16} />
             </a>
           </div>
         </div>

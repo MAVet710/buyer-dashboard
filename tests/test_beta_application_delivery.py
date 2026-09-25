@@ -14,8 +14,10 @@ def payload(**overrides):
         role="Operations Manager",
         operation="Vertically Integrated",
         facilities="2–3",
+        primary_workflow="Extraction & Production",
         stack="Dutchie",
         state="MA",
+        timeline="Within 30 days",
         pain="We need better operational visibility across facilities.",
         must_have="One place to see inventory, production, and compliance.",
         consent=True,
@@ -45,7 +47,9 @@ def test_beta_application_routes_to_durable_advisory_pipeline(monkeypatch):
     assert lead.email == "operator@example.com"
     assert lead.challenge.startswith("We need better operational visibility")
     assert "Beta facilities / licenses: 2–3" in lead.message
+    assert "Primary pilot workflow: Extraction & Production" in lead.message
     assert "Primary POS / ERP: Dutchie" in lead.message
+    assert "Desired beta start: Within 30 days" in lead.message
     assert "One place to see inventory" in lead.message
     engine.dispose()
 
