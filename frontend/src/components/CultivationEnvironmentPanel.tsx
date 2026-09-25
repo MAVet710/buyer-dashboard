@@ -14,7 +14,8 @@ type Target = { minimum: number | null; maximum: number | null; stale_minutes: n
 export type EnvironmentReading = {
   metric: Metric; source: string; device_id: string; value: number | null; unit: string;
   quality: string | null; observed_at: string | null; states: string[]; target: Target | null;
-  trend_24h: { count: number; min: number; max: number; average: number; total: number } | null;
+  trend_24h: { kind: "continuous"; count: number; min: number; max: number; average: number }
+    | { kind: "event_count" | "volume_total"; count: number; total: number } | null;
 };
 type Snapshot = { readings: EnvironmentReading[]; exceptions: EnvironmentReading[]; truncated: boolean; as_of: string };
 type Room = { id: string; room_code: string; display_name: string; active: boolean };
@@ -44,7 +45,7 @@ function RoomEnvironment({ roomId, canWrite }: { roomId: string; canWrite: boole
   const refresh = () => { void client.invalidateQueries({ queryKey: ["cultivation-environment", roomId] }); };
   return <>
     {query.isError ? <div className="state error">Environment data could not load: {query.error.message}</div> : query.isPending ? <div className="state">Loading conditions...</div> : <>
-      <p className="source-caption">As of {new Date(query.data.as_of).toLocaleString()}. Trends cover valid readings in the past 24 hours. Unconfigured continuous sensors become stale after 60 minutes.</p>
+      <p className="source-caption">As of {new Date(query.data.as_of).toLocaleString()}. Trends cover valid readings in the past 24 hours per source/device. Irrigation shows recorded event counts or volume totals, not estimated delivery. No valid readings means coverage is unknown. Unconfigured continuous sensors become stale after 60 minutes; irrigation has no default stale window. Missing metrics raise exceptions only when a target is configured.</p>
       {query.data.truncated && <div className="warning-banner">Showing the first 200 sensor streams. Additional streams are not included in this summary.</div>}
       {query.data.exceptions.length > 0 && <div className="warning-banner" role="status">{query.data.exceptions.length} environmental exceptions need review. Check flagged readings below.</div>}
       <EnvironmentTable readings={query.data.readings} />
@@ -61,9 +62,10 @@ export function EnvironmentTable({ readings }: { readings: EnvironmentReading[] 
     {readings.map(row => <tr key={`${row.metric}-${row.source}-${row.device_id}`}>
       <td>{metrics[row.metric][0]}<br /><small>{row.source || "No source"}{row.device_id ? ` / ${row.device_id}` : ""}</small></td>
       <td>{row.value === null ? "No observation" : `${number(row.value)} ${row.unit}`}<br /><small>{row.observed_at ? new Date(row.observed_at).toLocaleString() : ""}</small></td>
-      <td className={row.states.includes("current") ? "" : "warning-text"}>{row.states.map(state => state.replaceAll("_", " ")).join(", ")}</td>
-      <td>{row.trend_24h ? <>{row.trend_24h.count} valid readings<br />Min {number(row.trend_24h.min)}, max {number(row.trend_24h.max)}, avg {number(row.trend_24h.average)} {row.unit}
-        {row.metric.startsWith("irrigation_") && <><br />Total {number(row.trend_24h.total)} {row.unit}</>}</> : "No valid readings"}</td>
+      <td className={row.states.includes("current") ? "" : "warning-text"}>{row.states.map(state => state === "current" && row.metric.startsWith("irrigation_") ? "Recorded" : state.replaceAll("_", " ")).join(", ")}</td>
+      <td>{row.trend_24h ? row.trend_24h.kind === "continuous" ? <>{row.trend_24h.count} valid readings<br />Min {number(row.trend_24h.min)}, max {number(row.trend_24h.max)}, avg {number(row.trend_24h.average)} {row.unit}</>
+        : row.trend_24h.kind === "event_count" ? <>{number(row.trend_24h.total)} recorded events</>
+          : <>Total {number(row.trend_24h.total)} {row.unit}<br />{row.trend_24h.count} valid volume observations</> : "No valid readings"}</td>
       <td>{row.target ? <>{row.target.minimum ?? "No minimum"} to {row.target.maximum ?? "no maximum"} {row.unit}<br /><small>Stale after {row.target.stale_minutes} minutes</small></> : "Not configured"}</td>
     </tr>)}
   </tbody></table></div>;

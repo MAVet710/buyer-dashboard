@@ -16,10 +16,15 @@ class IngestRequest(BaseModel):
     observations: list[Reading] = Field(min_length=1, max_length=500)
 
 
-def call(context, engine, room_id, method, *args, write=False):
+def authorize_telemetry(context, engine, *, write=False):
+    """Final-rebase hook for generalized cultivation write permission (see telemetry docs)."""
     require_facility_capability(context, engine, "cultivation")
     if write:
         require_write(context)
+
+
+def call(context, engine, room_id, method, *args, write=False):
+    authorize_telemetry(context, engine, write=write)
     try:
         kwargs = {"actor": context.user_id} if write else {}
         return getattr(TelemetryService(engine), method)(context.organization_id, context.facility_id, room_id, *args, **kwargs)

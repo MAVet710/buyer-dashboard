@@ -3,6 +3,9 @@
 No adapter credentials, provider calls, equipment commands, or irrigation writes.
 """
 from datetime import datetime, timedelta, timezone
+import hashlib
+import json
+import math
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -26,6 +29,8 @@ def utc(value: datetime) -> datetime:
 
 
 def normalize(metric: str, value: float, unit: str) -> tuple[float, str]:
+    if not math.isfinite(value):
+        raise ValueError("Measurement must be finite.")
     canonical = METRICS[metric]
     if metric == "temperature" and unit == "F":
         value = (value - 32) * 5 / 9
@@ -91,6 +96,14 @@ class TargetInput(BaseModel):
 
 class TelemetryConflict(ValueError):
     pass
+
+
+def exception_identity(organization_id, facility_id, room_id, row):
+    """Versioned, unambiguous evidence identity; independent of polling time/DB UUIDs."""
+    evidence = [organization_id, facility_id, room_id, row["metric"], row["source"],
+                row["device_id"], sorted(row["states"]), row["observed_at"], row.get("event_id")]
+    digest = hashlib.sha256(json.dumps(evidence, separators=(",", ":"), ensure_ascii=True).encode()).hexdigest()
+    return f"cultivation-telemetry:v1:{digest}"
 
 
 class TelemetryService:
@@ -171,14 +184,22 @@ class TelemetryService:
             scope = self.scope(Observation, organization_id, facility_id, room_id)
             stream = [Observation.metric, Observation.source, Observation.device_id]
             ranked = select(Observation, func.row_number().over(partition_by=stream,
-                order_by=[Observation.observed_at.desc(), Observation.received_at.desc(), Observation.id.desc()]).label("rank")).where(*scope, Observation.observed_at <= now).subquery()
+                order_by=[Observation.observed_at.desc(), Observation.event_id.desc()]).label("rank")).where(*scope, Observation.observed_at <= now).subquery()
             latest = session.execute(select(ranked).where(ranked.c.rank == 1).order_by(ranked.c.metric, ranked.c.source, ranked.c.device_id).limit(201)).mappings().all()
             # Aggregate in SQL; never hydrate raw history or fan out per sensor.
             stats = session.execute(select(*stream, func.count().label("count"), func.min(Observation.value).label("min"),
                 func.max(Observation.value).label("max"), func.avg(Observation.value).label("average"), func.sum(Observation.value).label("total"))
-                .where(*scope, Observation.quality == "valid", Observation.observed_at >= now - timedelta(hours=24), Observation.observed_at <= now)
+                .where(*scope, tuple_(*stream).in_([(r["metric"], r["source"], r["device_id"]) for r in latest[:200]]),
+                       Observation.quality == "valid", Observation.observed_at > now - timedelta(hours=24), Observation.observed_at <= now)
                 .group_by(*stream).order_by(*stream).limit(201)).mappings().all()
-            stats_map = {(r["metric"], r["source"], r["device_id"]): dict(r) for r in stats}
+            stats_map = {}
+            for stat in stats:
+                if stat["metric"].startswith("irrigation_"):
+                    trend = {"kind": "event_count" if stat["metric"] == "irrigation_event" else "volume_total",
+                             "count": stat["count"], "total": stat["total"]}
+                else:
+                    trend = {"kind": "continuous", **{key: stat[key] for key in ("count", "min", "max", "average")}}
+                stats_map[(stat["metric"], stat["source"], stat["device_id"])] = trend
             rows = []
             for row in latest[:200]:
                 metric = row["metric"]
@@ -193,7 +214,7 @@ class TelemetryService:
                     states.append(row["quality"])
                 elif target and ((target.minimum is not None and row["value"] < target.minimum) or (target.maximum is not None and row["value"] > target.maximum)):
                     states.append("out_of_range")
-                rows.append({"metric": metric, "source": row["source"], "device_id": row["device_id"], "value": row["value"],
+                rows.append({"metric": metric, "source": row["source"], "device_id": row["device_id"], "event_id": row["event_id"], "value": row["value"],
                     "unit": row["unit"], "quality": row["quality"], "observed_at": observed.isoformat(), "states": states or ["current"],
                     "trend_24h": stats_map.get((metric, row["source"], row["device_id"])), "target": self.target_payload(target), "stale_minutes": stale_after})
             present = {r["metric"] for r in latest}
@@ -204,8 +225,29 @@ class TelemetryService:
                             "observed_at": None, "states": ["missing"], "trend_24h": None, "target": self.target_payload(targets.get(metric)),
                             "stale_minutes": targets[metric].stale_minutes if metric in targets else None})
             exceptions = [r for r in rows if r["states"] != ["current"] and (r["states"] != ["missing"] or r["target"])]
+            for row in exceptions:
+                row["exception_id"] = exception_identity(organization_id, facility_id, room_id, row)
             return {"room_id": room.id, "room_code": room.room_code, "as_of": now.isoformat(), "readings": rows,
                 "exceptions": exceptions, "truncated": len(latest) > 200, "decision_support_only": True}
+
+    def prepare_work_item(self, organization_id, facility_id, room_id, exception_id, *, actor, now=None):
+        """Resolve an explicitly selected exception to a draft, never create a task.
+
+        Final-rebase API must authorize cultivation AND Work creation, then pass this
+        server-derived evidence to the canonical Work service with atomic deduplication.
+        A client-supplied snapshot is never accepted as authoritative evidence.
+        """
+        if not actor or not actor.strip():
+            raise ValueError("An authenticated operator is required.")
+        snapshot = self.snapshot(organization_id, facility_id, room_id, now=now)
+        row = next((r for r in snapshot["exceptions"] if r["exception_id"] == exception_id), None)
+        if row is None:
+            raise TelemetryConflict("Exception is no longer current or is outside the visible summary; refresh before creating Work.")
+        return {"organization_id": organization_id, "facility_id": facility_id,
+                "origin_type": "cultivation_telemetry_exception", "origin_id": exception_id,
+                "room_id": room_id, "requested_by": actor,
+                "title": f"Review {snapshot['room_code']} {row['metric']}: {', '.join(row['states'])}",
+                "evidence": dict(row), "evidence_as_of": snapshot["as_of"], "decision_support_only": True}
 
     @staticmethod
     def target_payload(target):

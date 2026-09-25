@@ -182,6 +182,10 @@ def test_summary_is_bounded_and_query_count_constant(setup):
     assert snapshot["truncated"] is True
     assert len(snapshot["readings"]) == 200
     assert len(statements) == 4
+    assert all(row["trend_24h"]["count"] == 1 for row in snapshot["readings"])
+    assert "LIMIT" in statements[2].upper()
+    assert "GROUP BY" in statements[3].upper() and "LIMIT" in statements[3].upper()
+    assert " IN " in statements[3].upper()  # Only the selected bounded streams are aggregated.
 
 
 def test_api_contract_scope_roles_and_conflict(setup):
@@ -212,7 +216,8 @@ def test_api_contract_scope_roles_and_conflict(setup):
     assert client.get(path).status_code == 403
 
 
-def test_migration_roundtrip_and_evidence_preservation():
+@pytest.mark.parametrize("populated", ["targets", "observations"])
+def test_migration_roundtrip_and_evidence_preservation(populated):
     migration = importlib.import_module("migrations.versions.0080_cultivation_telemetry")
     engine = create_engine("sqlite://")
     with engine.begin() as conn:
@@ -220,10 +225,14 @@ def test_migration_roundtrip_and_evidence_preservation():
         conn.execute(text("INSERT INTO cultivation_rooms VALUES ('r1','o1','f1')"))
         with Operations.context(MigrationContext.configure(conn)):
             migration.upgrade()
-            conn.execute(text("INSERT INTO cultivation_environment_targets VALUES ('t1','o1','f1','r1','temperature',20,25,60)"))
+            if populated == "targets":
+                conn.execute(text("INSERT INTO cultivation_environment_targets VALUES ('t1','o1','f1','r1','temperature',20,25,60)"))
+            else:
+                conn.execute(text("INSERT INTO cultivation_environment_observations VALUES ('e1','o1','f1','r1','temperature','manual','event','','25','C','valid','2026-01-02','2026-01-02')"))
             with pytest.raises(RuntimeError, match="Preserve data"):
                 migration.downgrade()
-            conn.execute(text("DELETE FROM cultivation_environment_targets"))
+            assert conn.execute(text(f"SELECT count(*) FROM cultivation_environment_{populated}")).scalar() == 1
+            conn.execute(text(f"DELETE FROM cultivation_environment_{populated}"))
             migration.downgrade()
             migration.upgrade()
         assert conn.execute(text("SELECT count(*) FROM cultivation_rooms")).scalar() == 1
@@ -234,3 +243,152 @@ def test_ui_api_routes_and_release_registration():
     assert "cultivation_telemetry_router" in (root / "backend/app/main.py").read_text()
     assert "CultivationEnvironmentPanel" in (root / "frontend/src/pages/CultivationOpsPage.tsx").read_text()
     assert "telemetry/rooms/" in (root / "frontend/src/components/CultivationEnvironmentPanel.tsx").read_text()
+
+
+@pytest.mark.parametrize("value", [25, 35])
+@pytest.mark.parametrize("quality,age,expected", [
+    ("valid", 0, ["current"]), ("valid", 61, ["stale"]),
+    ("suspect", 0, ["suspect"]), ("invalid", 0, ["invalid"]),
+    ("suspect", 61, ["stale", "suspect"]), ("invalid", 61, ["stale", "invalid"]),
+])
+def test_targets_never_suppress_quality_or_staleness(setup, quality, age, expected, value):
+    _, service = setup
+    service.set_target("o1", "f1", "r1", {"metric": "temperature", "minimum": 20, "maximum": 30}, actor="tester")
+    ingest(service, [reading(quality=quality, unit="C", value=value)])
+    row = service.snapshot("o1", "f1", "r1", now=NOW + timedelta(minutes=age))["readings"][0]
+    if quality == "valid" and value > 30:
+        expected = (["stale"] if age > 60 else []) + ["out_of_range"]
+    assert row["states"] == expected
+    if quality != "valid":
+        assert row["trend_24h"] is None
+
+
+def test_irrigation_totals_use_valid_discrete_events_in_exact_window(setup):
+    _, service = setup
+    rows = []
+    for metric, unit, value in [("irrigation_event", "count", 1), ("irrigation_volume", "mL", 1500)]:
+        for event_id, quality, age in [("a", "valid", 0), ("b", "valid", 1), ("c", "invalid", 2),
+                                       ("d", "suspect", 3), ("boundary", "valid", 24)]:
+            rows.append(reading(metric=metric, unit=unit, value=value, event_id=event_id,
+                                quality=quality, observed_at=NOW - timedelta(hours=age)))
+    ingest(service, rows)
+    snapshot = service.snapshot("o1", "f1", "r1", now=NOW)
+    trends = {row["metric"]: row["trend_24h"] for row in snapshot["readings"]}
+    assert trends["irrigation_event"] == {"kind": "event_count", "count": 2, "total": 2}
+    assert trends["irrigation_volume"] == {"kind": "volume_total", "count": 2, "total": 3}
+    later = service.snapshot("o1", "f1", "r1", now=NOW + timedelta(days=2))
+    assert all(row["trend_24h"] is None for row in later["readings"])
+
+
+def test_exception_identity_and_explicit_work_draft_are_read_only(setup):
+    engine, service = setup
+    ingest(service, [reading(quality="suspect"), reading(quality="suspect", device_id="second"),
+                     reading(quality="suspect", source="other")])
+    first = service.snapshot("o1", "f1", "r1", now=NOW)["exceptions"]
+    second = service.snapshot("o1", "f1", "r1", now=NOW + timedelta(minutes=1))["exceptions"]
+    assert [r["exception_id"] for r in first] == [r["exception_id"] for r in second]
+    assert len({r["exception_id"] for r in first}) == 3
+    selected = next(r for r in first if r["source"] == "manual" and not r["device_id"])
+    with Session(engine) as session:
+        before = session.scalar(select(func.count()).select_from(AuditEvent))
+    draft = service.prepare_work_item("o1", "f1", "r1", selected["exception_id"], actor="tester", now=NOW)
+    assert draft["origin_id"] == selected["exception_id"]
+    assert draft["evidence"] == selected
+    assert draft["requested_by"] == "tester"
+    assert draft["room_id"] == "r1"
+    assert draft["decision_support_only"] is True
+    with Session(engine) as session:
+        assert session.scalar(select(func.count()).select_from(AuditEvent)) == before
+    with pytest.raises(LookupError):
+        service.prepare_work_item("o2", "f1", "r1", selected["exception_id"], actor="tester", now=NOW)
+    with pytest.raises(TelemetryConflict):
+        service.prepare_work_item("o1", "f2", "r2", selected["exception_id"], actor="tester", now=NOW)
+    with pytest.raises(ValueError):
+        service.prepare_work_item("o1", "f1", "r1", selected["exception_id"], actor="", now=NOW)
+    ingest(service, [reading(event_id="replacement", observed_at=NOW + timedelta(minutes=1))])
+    with pytest.raises(TelemetryConflict):
+        service.prepare_work_item("o1", "f1", "r1", selected["exception_id"], actor="tester", now=NOW + timedelta(minutes=1))
+
+
+def test_missing_and_state_transition_identity(setup):
+    _, service = setup
+    for room, facility in [("r1", "f1"), ("r2", "f2")]:
+        service.set_target("o1", facility, room, {"metric": "temperature"}, actor="tester")
+    missing = service.snapshot("o1", "f1", "r1", now=NOW)["exceptions"][0]["exception_id"]
+    assert missing == service.snapshot("o1", "f1", "r1", now=NOW + timedelta(hours=1))["exceptions"][0]["exception_id"]
+    assert missing != service.snapshot("o1", "f2", "r2", now=NOW)["exceptions"][0]["exception_id"]
+    ingest(service, [reading(quality="invalid")])
+    fresh = service.snapshot("o1", "f1", "r1", now=NOW)["exceptions"][0]["exception_id"]
+    stale = service.snapshot("o1", "f1", "r1", now=NOW + timedelta(hours=2))["exceptions"][0]["exception_id"]
+    assert len({missing, fresh, stale}) == 3
+
+
+def test_equal_timestamp_latest_is_independent_of_delivery_order(setup):
+    _, service = setup
+    ingest(service, [reading(event_id="z", quality="invalid")])
+    ingest(service, [reading(event_id="a")])
+    row = service.snapshot("o1", "f1", "r1", now=NOW)["exceptions"][0]
+    assert row["event_id"] == "z"
+    assert row["states"] == ["invalid"]
+
+
+@pytest.mark.parametrize("role,allowed", [("dev", True), ("admin", True), ("supervisor", True),
+    ("operator", True), ("qa", True), ("buyer", False), ("planner", False), ("viewer", False),
+    ("read_only", False), ("trial", False), ("user", False), ("unknown", False)])
+def test_write_authorization_hook_retains_role_and_capability_gates(setup, role, allowed):
+    from backend.app.routers.cultivation_telemetry import authorize_telemetry
+    from fastapi import HTTPException
+    engine, _ = setup
+    context = RequestContext("tester", "o1", "f1", role)
+    if allowed:
+        authorize_telemetry(context, engine, write=True)
+    else:
+        with pytest.raises(HTTPException) as error:
+            authorize_telemetry(context, engine, write=True)
+        assert error.value.status_code == 403
+    with Session(engine) as session, session.begin():
+        session.get(Facility, "f1").cultivation_enabled = False
+    with pytest.raises(HTTPException) as error:
+        authorize_telemetry(context, engine, write=True)
+    assert error.value.status_code == 403
+
+
+def test_postgresql_acl_contract(monkeypatch):
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+    migration = importlib.import_module("migrations.versions.0080_cultivation_telemetry")
+    statements = []
+    @contextmanager
+    def batch(*args):
+        yield SimpleNamespace(create_unique_constraint=lambda *args: None)
+    monkeypatch.setattr(migration, "op", SimpleNamespace(batch_alter_table=batch,
+        create_table=lambda *args: None, create_index=lambda *args: None,
+        get_bind=lambda: SimpleNamespace(dialect=SimpleNamespace(name="postgresql")), execute=statements.append))
+    migration.upgrade()
+    sql = "\n".join(statements)
+    for table in migration.TABLES:
+        assert f"ALTER TABLE public.{table} ENABLE ROW LEVEL SECURITY" in sql
+        assert f"REVOKE ALL ON TABLE public.{table} FROM PUBLIC" in sql
+        assert f"REVOKE ALL ON TABLE public.{table} FROM %I" in sql
+    assert "ARRAY['anon','authenticated']" in sql
+    assert "GRANT SELECT, INSERT ON TABLE public.cultivation_environment_observations TO doobielogic_render_runtime" in sql
+    assert "GRANT SELECT, INSERT, UPDATE ON TABLE public.cultivation_environment_targets TO doobielogic_render_runtime" in sql
+    assert "CREATE POLICY" not in sql
+
+
+def test_telemetry_exposes_no_provider_or_equipment_path():
+    import ast
+    root = Path(__file__).resolve().parents[1]
+    for path in ["modules/cultivation/telemetry.py", "backend/app/routers/cultivation_telemetry.py"]:
+        tree = ast.parse((root / path).read_text())
+        imports = [node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)]
+        imports += [alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names]
+        assert not any(any(name in module for name in ("requests", "httpx", "socket", "subprocess", "trolmaster", "growlink", "argus")) for module in imports)
+    assert {(route.path, tuple(sorted(route.methods))) for route in router.routes} == {
+        ("/inventory/production/plants/telemetry/rooms/{room_id}", ("GET",)),
+        ("/inventory/production/plants/telemetry/rooms/{room_id}/target", ("POST",)),
+        ("/inventory/production/plants/telemetry/rooms/{room_id}/observations", ("POST",)),
+    }
+    for field in ("credentials", "equipment_command", "irrigation_command", "vendor_api_key"):
+        with pytest.raises(ValidationError):
+            Reading(**reading(**{field: "not-accepted"}))
