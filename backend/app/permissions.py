@@ -35,6 +35,85 @@ ROLE_DEFAULTS: dict[str, frozenset[str]] = {
 }
 
 
+# Match existing role behavior; endpoint role and capability gates remain mandatory.
+_OPERATION_PERMISSIONS = [('inventory.receive',
+  'Inventory',
+  'Receive inventory',
+  'Post individual and batch inventory receipts.',
+  'dev admin buyer planner supervisor operator qa trial'),
+ ('inventory.adjust',
+  'Inventory',
+  'Adjust inventory',
+  'Post quantity adjustments through the inventory adjustment endpoint.',
+  'dev admin supervisor operator qa'),
+ ('audits.complete',
+  'Audits',
+  'Complete inventory audits',
+  'Complete audits, including optional ledger adjustments.',
+  'dev admin buyer supervisor operator qa trial'),
+ ('cultivation.bulk_transition',
+  'Cultivation',
+  'Change plants in bulk',
+  'Commit bulk plant phase and room transitions.',
+  'dev admin supervisor operator qa'),
+ ('production.schedule',
+  'Production',
+  'Commit production schedules',
+  'Commit production order schedule changes.',
+  'dev admin planner supervisor'),
+ ('qa.decide',
+  'Extraction / QA',
+  'Record QA decisions',
+  'Post production and extraction QA decisions.',
+  'dev admin supervisor qa'),
+ ('traceability.dispatch',
+  'Compliance / Traceability',
+  'Dispatch traceability actions',
+  'Dispatch queued actions and retry or resolve traceability exceptions. Provider gates still '
+  'apply.',
+  'dev admin supervisor qa'),
+ ('labels.advance_runs',
+  'Labels',
+  'Advance label production runs',
+  'Create, tag, design, record printing and transition production label runs.',
+  'dev admin supervisor operator qa'),
+ ('commercial.record_payment',
+  'Commercial / Finance',
+  'Record invoice payments',
+  'Record commercial invoice payments. Existing authenticated access is preserved by default.',
+  'dev admin buyer planner supervisor operator qa read_only trial user'),
+ ('integrations.manage_metrc',
+  'Integrations',
+  'Manage personal Metrc credentials',
+  'Save or clear the current user facility-scoped Metrc connection. Existing authenticated access '
+  'is preserved by default.',
+  'dev admin buyer planner supervisor operator qa read_only trial user'),
+ ('reports.export',
+  'Reports',
+  'Export executive reports',
+  'Generate executive PDFs and report packs. Existing authenticated access is preserved by '
+  'default.',
+  'dev admin buyer planner supervisor operator qa read_only trial user'),
+ ('admin.manage_permissions',
+  'Admin',
+  'Manage permission overrides',
+  'Save user permission overrides in the target facility. Administrator role is still required.',
+  'dev admin'),
+ ('ai.publish_knowledge',
+  'AI',
+  'Publish AI knowledge',
+  'Ingest AI agent knowledge. Existing authority and organization/global publishing restrictions '
+  'still apply.',
+  'dev admin supervisor qa')]
+for _key, _group, _label, _description, _roles in _OPERATION_PERMISSIONS:
+    PERMISSION_REGISTRY[_key] = {
+        "group": _group, "label": _label, "description": _description,
+        "coverage": "Selected endpoints only; other domain actions retain existing checks.",
+    }
+    for _role in _roles.split():
+        ROLE_DEFAULTS[_role] = ROLE_DEFAULTS[_role] | {_key}
+
+
 def permission_snapshot(context: RequestContext, engine: Engine) -> dict:
     role = context.role.casefold()
     if role == "dev":

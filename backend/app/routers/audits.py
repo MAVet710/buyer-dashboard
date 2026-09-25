@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from modules.coman.models import InventoryLot
 from ..auth import RequestContext, get_request_context, require_inventory_operation_capability
+from ..permissions import require_permission
 from ..database import get_engine
 from ..schemas.inventory import InventoryAuditComplete, InventoryAuditCounts, InventoryAuditCreate, InventoryAuditDetail, InventoryAuditLineItem, InventoryAuditScanCount, InventoryAuditScanPreview, InventoryAuditStatusChange, InventoryAuditSummary, RetailAuditSnapshotImport
 from ..services.audits import AuditService
@@ -78,6 +79,7 @@ def change_status(operation: str, audit_id: str, payload: InventoryAuditStatusCh
 
 @router.post("/{audit_id}/complete", response_model=InventoryAuditSummary)
 def complete_audit(operation: str, audit_id: str, payload: InventoryAuditComplete, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
+    require_permission(context, engine, "audits.complete")
     _validate(operation, context, engine, True); service = AuditService(engine)
     try:
         _audit_for_operation(service, context, audit_id, operation)

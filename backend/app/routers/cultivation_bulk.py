@@ -6,6 +6,7 @@ from sqlalchemy import Engine
 
 from modules.cultivation.bulk import CultivationBulkService
 from ..auth import RequestContext, get_request_context, require_facility_capability
+from ..permissions import require_permission
 from ..database import get_engine
 from ..services.cultivation_regulatory_guard import CultivationRegulatoryGuard
 
@@ -28,6 +29,7 @@ def bulk_transition_plants(
     context: RequestContext = Depends(get_request_context),
     engine: Engine = Depends(get_engine),
 ):
+    require_permission(context, engine, "cultivation.bulk_transition")
     if context.role.casefold() not in WRITE_ROLES:
         raise HTTPException(403, "Your role does not allow cultivation changes.")
     require_facility_capability(context, engine, "cultivation")

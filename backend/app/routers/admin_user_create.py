@@ -15,7 +15,7 @@ from modules.coman.permissions import AppUserPermissionOverride
 from ..auth import RequestContext, get_request_context
 from ..config import Settings, get_settings
 from ..database import get_engine
-from ..permissions import PERMISSION_REGISTRY, ROLE_DEFAULTS, permission_snapshot
+from ..permissions import PERMISSION_REGISTRY, ROLE_DEFAULTS, permission_snapshot, require_permission
 from ..services.spacemail import SpacemailError, resolve_spacemail_settings, send_welcome_email
 from .admin import UserLink, _link, _require_admin, _serialize_user, _username, _validate_role
 
@@ -243,6 +243,8 @@ def update_user_permissions(
 
     with Session(engine, expire_on_commit=False) as session, session.begin():
         target, facility = _permission_target(session, context, user_id, payload.facility_id)
+        permission_context = RequestContext(context.user_id, facility.organization_id, facility.id, context.role, "Uploads")
+        require_permission(permission_context, engine, "admin.manage_permissions")
         if target.role == "dev":
             raise HTTPException(422, "Level DEV always has platform permissions and cannot be overridden.")
         existing = {
@@ -389,3 +391,14 @@ def create_user_with_temporary_password(
     except Exception:
         _delete_auth_user(settings, auth_user_id)
         raise
+
+
+@router.get("/security-readiness")
+def security_readiness(
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    _require_admin(context)
+    from ..services.security_readiness import readiness_snapshot
+    return readiness_snapshot(context, engine, settings)
