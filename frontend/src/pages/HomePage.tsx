@@ -23,6 +23,7 @@ type HomeAction = { label: string; description: string; page: string; roles?: st
 
 const HOME_ACTIONS: HomeAction[] = [
   { label: "Open Work Queue", description: "Assign, track and complete operational work across your facility.", page: "Work Queue" },
+  { label: "Implementation Readiness", description: "Review facility setup evidence, owners, and implementation milestones.", page: "Implementation Readiness" },
   { label: "Open Operations Control Tower", description: "Resolve cross-workspace risk, review Doobie actions, check SOPs, labels, profitability, cultivation, machines, and commerce.", page: "Operations Control Tower", roles: ["dev", "admin", "buyer", "planner", "supervisor", "operator", "qa", "read_only"] },
   { label: "Ask Doobie Agent", description: "Use facility-scoped operational and regulatory intelligence to understand what needs attention and what should happen next.", page: "Doobie", roles: ["dev", "admin", "buyer", "planner", "supervisor", "operator", "qa", "read_only"] },
   { label: "Wholesale & Customer Portal", description: "Work sales orders, fulfillment, customers, storefronts, manifest readiness, and distribution from the same production inventory.", page: "Wholesale Ops", roles: ["dev", "admin", "buyer", "planner", "supervisor", "operator", "qa", "read_only"] },
@@ -64,23 +65,23 @@ export function HomePage({ onNavigate }: { onNavigate: (page: string) => void })
       <div className="eyebrow">Operations Home</div>
       <h1>Good to see you, {context.data?.user.display_name || context.data?.user.email || "Operator"}.</h1>
       <p>Your {roleLabel(role)} workspace is organized around what needs attention now.</p>
-      <span className="role-home-context">{context.data?.organization?.name ?? "Organization"} · {facility?.name ?? "Facility"}</span>
+      <span className="role-home-context">{context.data?.organization?.name ?? "Organization"} Â· {facility?.name ?? "Facility"}</span>
     </section>
 
     <section className="role-home-metrics">
-      <HomeMetric label="Needs attention" value={inbox.data?.summary.total ?? "—"} caption={`${highPriority} high-priority item(s)`}/>
-      <HomeMetric label="Low stock" value={data?.low_stock ?? "—"} caption="Critical cover signal"/>
-      <HomeMetric label="Open POs" value={data?.open_purchase_orders ?? "—"} caption={`${money(data?.open_purchase_order_value ?? 0)} represented`}/>
-      <HomeMetric label="Data sources ready" value={data ? `${data.active_data_sources}/${data.data_sources_total}` : "—"} caption="Sources available to workspaces"/>
+      <HomeMetric label="Needs attention" value={inbox.data?.summary.total ?? "â€”"} caption={`${highPriority} high-priority item(s)`}/>
+      <HomeMetric label="Low stock" value={data?.low_stock ?? "â€”"} caption="Critical cover signal"/>
+      <HomeMetric label="Open POs" value={data?.open_purchase_orders ?? "â€”"} caption={`${money(data?.open_purchase_order_value ?? 0)} represented`}/>
+      <HomeMetric label="Data sources ready" value={data ? `${data.active_data_sources}/${data.data_sources_total}` : "â€”"} caption="Sources available to workspaces"/>
     </section>
 
     <section className="role-home-section">
-      <div className="role-home-section-label">Needs attention · Operations Inbox</div>
-      {inbox.isLoading ? <div className="state">Building the current facility decision queue…</div> : null}
+      <div className="role-home-section-label">Needs attention Â· Operations Inbox</div>
+      {inbox.isLoading ? <div className="state">Building the current facility decision queueâ€¦</div> : null}
       {inbox.isError ? <div className="state error">{inbox.error.message}</div> : null}
       {inbox.data?.items.length ? <div className="role-home-inbox">{inbox.data.items.slice(0, 8).map(item => <article className="role-home-alert" key={item.id}>
         <div className="role-home-alert-area"><span>{item.area.toUpperCase()}</span><em className={`severity ${item.severity}`}>{item.severity}</em></div>
-        <div className="role-home-alert-body"><strong>{item.title}</strong><p>{item.detail}</p>{item.evidence?.length ? <small>{item.evidence.join(" · ")}</small> : null}</div>
+        <div className="role-home-alert-body"><strong>{item.title}</strong><p>{item.detail}</p>{item.evidence?.length ? <small>{item.evidence.join(" Â· ")}</small> : null}</div>
         <button className={item.severity === "critical" ? "primary" : "secondary"} type="button" onClick={() => openInboxItem(item)}>{item.action_label || actionLabel(item.area)}</button>
       </article>)}</div> : !inbox.isLoading && !inbox.isError ? <div className="success-banner"><strong>No high-priority operational exceptions are visible from the loaded facility data.</strong><br/><span>Start from a task below or use global search.</span></div> : null}
     </section>

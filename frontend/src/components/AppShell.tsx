@@ -78,6 +78,7 @@ function secondaryItems(category: PrimaryCategory, operation: OperationMode, rol
     ];
     if (category === "Reports") return [
       { label: "Executive Reports", page: "Executive Reports" },
+      { label: "Scheduled Reports", page: "Scheduled Reports", roles: ["dev", "admin"] },
     ];
     return [];
   }
@@ -106,6 +107,7 @@ function secondaryItems(category: PrimaryCategory, operation: OperationMode, rol
     ];
     if (category === "Reports") return [
       { label: "Executive Reports", page: "Executive Reports" },
+      { label: "Scheduled Reports", page: "Scheduled Reports", roles: ["dev", "admin"] },
     ];
     return [];
   }
@@ -130,6 +132,7 @@ function secondaryItems(category: PrimaryCategory, operation: OperationMode, rol
   if (category === "Reports") return [
     { label: "Sales & Category Trends", page: "Sales & Category Trends" },
     { label: "Executive Reports", page: "Executive Reports" },
+    { label: "Scheduled Reports", page: "Scheduled Reports", roles: ["dev", "admin"] },
   ];
   if (category === "Compliance") return [
     { label: "Compliance Q&A", page: "Compliance Q&A" },
@@ -144,6 +147,7 @@ function secondaryItems(category: PrimaryCategory, operation: OperationMode, rol
 
 function dataSettingsItems(role: string): SecondaryItem[] {
   const rows: SecondaryItem[] = [
+    { label: "Implementation Readiness", page: "Implementation Readiness" },
     { label: "Location", page: "Location Settings" },
     { label: "Imports & Data", page: "Data & Settings" },
   ];
@@ -161,8 +165,8 @@ function categoryForPage(page: string, _operation: OperationMode): PrimaryCatego
   if (["Cultivation", "Post-Harvest"].includes(page)) return "Cultivation";
   if (["Production", "Production Calendar", "Production Run 360", "Extraction", "White Label / Repack", "Package Studio"].includes(page)) return "Production";
   if (["Compliance", "Compliance Q&A", "Traceability Actions", "Product Name Mapper", "Nomenclature Mapper", "Label Studio", "MA Flower Equivalency"].includes(page)) return "Compliance";
-  if (["Sales & Category Trends", "Reports", "Executive Reports"].includes(page)) return "Reports";
-  if (["Location Settings", "Data & Settings", "Admin", "Admin Tools", "Integrations", "AI & METRC Integrations", "METRC Integrations"].includes(page)) return "Settings";
+  if (["Scheduled Reports", "Sales & Category Trends", "Reports", "Executive Reports"].includes(page)) return "Reports";
+  if (["Implementation Readiness", "Location Settings", "Data & Settings", "Admin", "Admin Tools", "Integrations", "AI & METRC Integrations", "METRC Integrations"].includes(page)) return "Settings";
   if (["Inventory", "Retail Inventory Transfers", "Retail Product Master", "Retail Product 360", "Package 360", "Retail Catalog Admin", "Inventory Audits", "Slow Movers", "Production Inventory", "Production Inventory Transfers", "Production Product Master"].includes(page)) return "Inventory";
   return "Inventory";
 }

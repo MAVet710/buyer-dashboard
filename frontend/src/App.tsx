@@ -42,6 +42,8 @@ const IntegrationsPage = lazy(() => import("./pages/IntegrationsPage").then(modu
 const DeveloperConnectionsPanel = lazy(() => import("./components/DeveloperConnectionsPanel").then(module => ({ default: module.DeveloperConnectionsPanel })));
 const MAFlowerEquivalencyPage = lazy(() => import("./pages/MAFlowerEquivalencyPage").then(module => ({ default: module.MAFlowerEquivalencyPage })));
 const NomenclatureMapperPage = lazy(() => import("./pages/NomenclatureMapperPage").then(module => ({ default: module.NomenclatureMapperPage })));
+const ImplementationReadinessPage = lazy(() => import("./pages/ImplementationReadinessPage").then(module => ({ default: module.ImplementationReadinessPage })));
+const ScheduledReportsPage = lazy(() => import("./pages/ScheduledReportsPage").then(module => ({ default: module.ScheduledReportsPage })));
 const ExecutiveReportsPage = lazy(() => import("./pages/ExecutiveReportsPage").then(module => ({ default: module.ExecutiveReportsPage })));
 const ComplianceQAPage = lazy(() => import("./pages/ComplianceQAPage").then(module => ({ default: module.ComplianceQAPage })));
 const OperationsControlTowerPage = lazy(() => import("./pages/OperationsControlTowerPage").then(module => ({ default: module.OperationsControlTowerPage })));
@@ -138,6 +140,8 @@ export default function App() {
     : page === "Label Studio" ? <LabelStudioWorkspacePage />
     : page === "MA Flower Equivalency" ? <MAFlowerEquivalencyPage />
     : page === "Nomenclature Mapper" || page === "Product Name Mapper" ? <NomenclatureMapperPage />
+    : page === "Implementation Readiness" ? <ImplementationReadinessPage onNavigate={navigate} />
+    : page === "Scheduled Reports" ? <ScheduledReportsPage />
     : page === "Executive Reports" ? <ExecutiveReportsPage />
     : page === "Operations Control Tower" ? <OperationsControlTowerPage onNavigate={navigate} />
     : page === "Enterprise Control Tower" ? <EnterpriseControlPage onNavigate={navigate} />
