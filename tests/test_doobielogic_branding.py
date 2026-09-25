@@ -47,10 +47,10 @@ def test_public_site_uses_brand_image_for_favicon_and_share_preview():
     # marketing navigation use optimized local derivatives of the same brand.
     assert 'rel="icon" type="image/webp" href="/doobielogic-logo.webp"' in index
     assert 'rel="apple-touch-icon" href="/doobielogic-logo.webp"' in index
-    assert 'property="og:image" content="https://doobielogic.io/marketing/doobielogic-brand.png"' in index
-    assert 'name="twitter:image" content="https://doobielogic.io/marketing/doobielogic-brand.png"' in index
-    assert '/marketing/doobielogic-brand.png' in seo
-    assert (ROOT / "frontend" / "public" / "marketing" / "doobielogic-brand.png").is_file()
+    assert 'property="og:image" content="https://doobielogic.io/doobielogic-logo.webp"' in index
+    assert 'name="twitter:image" content="https://doobielogic.io/doobielogic-logo.webp"' in index
+    assert '/doobielogic-logo.webp' in seo
+    assert (ROOT / "frontend" / "public" / "doobielogic-logo.webp").is_file()
     assert (ROOT / "frontend" / "public" / "marketing" / "brand.webp").is_file()
     assert 'IMG_7158.PNG' not in index
     assert '<MarketingNav />' in marketing

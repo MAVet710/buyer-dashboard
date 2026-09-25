@@ -6,7 +6,7 @@ export const MARKETING_TITLE = advisoryRoutes["/"].title;
 export const MARKETING_DESCRIPTION = advisoryRoutes["/"].description;
 const PRIVATE_ROBOTS = "noindex, nofollow, noarchive, nosnippet";
 const PUBLIC_ROBOTS = "index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1";
-const SOCIAL_IMAGE = `${MARKETING_ORIGIN}/marketing/doobielogic-brand.png`;
+const SOCIAL_IMAGE = `${MARKETING_ORIGIN}/doobielogic-logo.webp`;
 const normalizedPath = (pathname: string) => pathname === "/" ? "/" : pathname.replace(/\/$/, "");
 
 export function seoPage(marketing: boolean, pathname: string) {
@@ -81,7 +81,7 @@ export function configureSeo(marketing: boolean): void {
   for (const [name, content] of Object.entries({
     "og:type": page.kind === "article" ? "article" : "website", "og:site_name": "DoobieLogic", "og:title": page.title,
     "og:description": page.description, "og:url": page.canonical, "og:image": SOCIAL_IMAGE,
-    "og:image:type": "image/png", "og:image:width": "500", "og:image:height": "500", "og:image:alt": "DoobieLogic brand mark",
+    "og:image:type": "image/webp", "og:image:width": "512", "og:image:height": "512", "og:image:alt": "DoobieLogic brand mark",
   })) upsertMeta(name, content, "property");
   for (const [name, content] of Object.entries({
     "twitter:card": "summary", "twitter:title": page.title,
