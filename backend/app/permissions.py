@@ -37,7 +37,12 @@ ROLE_DEFAULTS: dict[str, frozenset[str]] = {
 
 
 # Match existing role behavior; endpoint role and capability gates remain mandatory.
-_OPERATION_PERMISSIONS = [('inventory.receive',
+_OPERATION_PERMISSIONS = [('white_label.manage_plans',
+  'Production',
+  'Manage White Label plans',
+  'Save, approve and cancel White Label planning documents. Existing role and facility gates still apply.',
+  'dev admin buyer planner supervisor'),
+ ('inventory.receive',
   'Inventory',
   'Receive inventory',
   'Post individual and batch inventory receipts.',

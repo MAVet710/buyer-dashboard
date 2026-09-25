@@ -108,6 +108,8 @@ async function installApiMocks(page: Page) {
     else if (path === "/api/v1/inventory/production/packages") body = productionInventory;
     else if (path === "/api/v1/package-studio/workspace") body = packageStudioWorkspace;
     else if (path === "/api/v1/package-studio/preview") body = { action_type: "breakdown", total_input: 1, total_output_source_equivalent: 1, loss_quantity: 0, source_unit: "unit", balanced: true, difference: 0, output_count: 2 };
+    else if (path === "/api/v1/white-label/plans") body = [];
+    else if (path === "/api/v1/white-label/sources") body = [];
     else if (path === "/api/v1/search") body = { results: [] };
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
   });

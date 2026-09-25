@@ -253,7 +253,7 @@ def test_white_label_repack_keeps_original_five_step_economics_workflow():
         'Step 3: Package Plan',
         'Step 4: Results',
         'Step 5: Compliance',
-        'Save Scenario',
+        'Save durable plan',
         'Duplicate Scenario',
         'Export Retail Ops Report',
         'Gross Profit',

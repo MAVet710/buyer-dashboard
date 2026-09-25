@@ -46,6 +46,7 @@ def override(engine, permission, effect="deny", facility="a", org="org", user="a
 
 
 @pytest.mark.parametrize("permission,roles", [
+    ("white_label.manage_plans", "dev admin buyer planner supervisor"),
     ("inventory.receive", "dev admin buyer planner supervisor operator qa trial"),
     ("inventory.adjust", "dev admin supervisor operator qa"),
     ("audits.complete", "dev admin buyer supervisor operator qa trial"),
@@ -84,6 +85,7 @@ def test_override_scope_and_dev_exception(engine):
 # Execute real endpoint functions with denied permissions and unusable payloads.
 # Any service/payload access before the authorization boundary would fail this test.
 GATES = [
+    *[("white_label", name, "white_label.manage_plans") for name in ("create", "save", "approve", "cancel")],
     ("inventory", "receive_inventory", "inventory.receive"),
     ("inventory", "receive_inventory_batch", "inventory.receive"),
     ("inventory", "adjust_inventory", "inventory.adjust"),
