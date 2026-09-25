@@ -11,7 +11,7 @@ class RelationshipScope(TimestampMixin):
     partner_id: Mapped[str] = mapped_column(ForeignKey("commercial_trade_partners.id"), nullable=False)
 
 class NextAction:
-    owner: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    owner_user_id: Mapped[str | None] = mapped_column(ForeignKey("app_users.id", ondelete="SET NULL"))
     next_action: Mapped[str] = mapped_column(String(1000), nullable=False, default="")
     next_action_date: Mapped[date | None] = mapped_column(Date)
 

@@ -10,6 +10,7 @@ from .auth import RequestContext
 
 
 PERMISSION_REGISTRY: dict[str, dict[str, str]] = {
+    "wholesale.manage_crm": {"group": "Wholesale", "label": "Manage wholesale CRM", "description": "Manage relationships, opportunities, quotes and Work follow-ups."},
     "wholesale.view": {"group": "Wholesale", "label": "View wholesale", "description": "View wholesale inventory, storefront configuration, and order activity."},
     "wholesale.edit_items": {"group": "Wholesale", "label": "Edit wholesale items", "description": "Change storefront visibility, featured status, and item ordering."},
     "wholesale.manage_pricing": {"group": "Wholesale", "label": "Manage wholesale pricing", "description": "Change base wholesale prices."},

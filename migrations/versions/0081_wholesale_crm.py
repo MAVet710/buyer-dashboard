@@ -2,8 +2,8 @@
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0080_wholesale_crm"
-down_revision = "0079_security_observation"
+revision = "0081_wholesale_crm"
+down_revision = "0080_doobie_work"
 branch_labels = None
 depends_on = None
 
@@ -18,7 +18,7 @@ def upgrade():
             partner_id VARCHAR(36) NOT NULL,
             created_at TIMESTAMP WITH TIME ZONE NOT NULL,
             updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
-            owner VARCHAR(255) NOT NULL,
+            owner_user_id VARCHAR(36) REFERENCES app_users (id) ON DELETE SET NULL,
             next_action VARCHAR(1000) NOT NULL,
             next_action_date DATE,
             PRIMARY KEY (id),
@@ -42,7 +42,7 @@ def upgrade():
             partner_id VARCHAR(36) NOT NULL,
             created_at TIMESTAMP WITH TIME ZONE NOT NULL,
             updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
-            owner VARCHAR(255) NOT NULL,
+            owner_user_id VARCHAR(36) REFERENCES app_users (id) ON DELETE SET NULL,
             next_action VARCHAR(1000) NOT NULL,
             next_action_date DATE,
             PRIMARY KEY (id),

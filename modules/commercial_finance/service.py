@@ -240,11 +240,8 @@ class CommercialFinanceService:
     def resolve_customer_price(self, organization_id: str, partner_id: str, product_id: str, base_price: float) -> float:
         with self._sessions() as session:
             rule = session.scalar(select(CustomerPriceRule).where(CustomerPriceRule.organization_id == organization_id, CustomerPriceRule.partner_id == partner_id, CustomerPriceRule.product_id == product_id, CustomerPriceRule.active.is_(True)))
-            if not rule:
-                return float(base_price or 0)
-            if float(rule.price_usd or 0) > 0:
-                return float(rule.price_usd)
-            return max(0.0, float(base_price or 0) * (1 - float(rule.discount_pct or 0) / 100.0))
+            from .pricing import customer_price
+            return customer_price(rule, float(base_price or 0))
 
     def ar_summary(self, organization_id: str, facility_id: str) -> dict[str, Any]:
         today = date.today()

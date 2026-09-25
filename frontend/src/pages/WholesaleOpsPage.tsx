@@ -81,7 +81,7 @@ function DeferredWorkspace({children}:{children:React.ReactNode}) {
 }
 
 export function WholesaleOpsPage({onNavigate}:{onNavigate:(page:string)=>void}) {
-  const [tab,setTab]=useState<Tab>("overview");
+  const [tab,setTab]=useState<Tab>(() => new URLSearchParams(window.location.search).get("tab") === "customers" ? "customers" : "overview");
   const inventoryNeeded=tab==="overview"||tab==="inventory";
   const commercialNeeded=tab==="overview";
   const storefrontNeeded=tab==="overview"||tab==="storefront";

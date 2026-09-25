@@ -1,5 +1,6 @@
 """Scoped work service. Mutations and their audit events commit together."""
 import calendar
+from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
@@ -116,13 +117,14 @@ class WorkService:
             raise HTTPException(404, "Work was not found in this facility.")
         return row
 
-    def create(self, payload, template=False):
+    def create(self, payload, template=False, *, session=None):
         require_write(self.context)
         values = payload.model_dump()
         if template:
             for key in ("due_at", "notes", "evidence"):
                 values.pop(key)
-        with Session(self.engine) as session, session.begin():
+        # Supplied transactions commit linked domain records atomically.
+        with (nullcontext(session) if session is not None else Session(self.engine)) as session, (nullcontext() if session.in_transaction() else session.begin()):
             validate_assignee(session, self.context, values.get("assignee_id"))
             row = (WorkTemplate if template else WorkItem)(**values, id=new_id(),
                     organization_id=self.context.organization_id, facility_id=self.context.facility_id,
