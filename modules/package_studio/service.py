@@ -325,6 +325,11 @@ class PackageStudioService:
                     )
                 input_lots.append(lot)
 
+            # A durable White Label handoff never bypasses current QA or claims.
+            from modules.repack.execution import validate_package_handoff
+
+            validate_package_handoff(session, plan, organization_id, facility_id)
+
             output_products: list[Product] = []
             for output in plan.outputs:
                 product = session.get(Product, output.product_id)

@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
+import { WhiteLabelExecutionHandoff } from "../components/WhiteLabelExecutionHandoff";
+import type { DurablePlan } from "./WhiteLabelRepackPage";
 import { apiGet, apiPost } from "../lib/api";
 
 type Lot = { lot_id:string; lot_code:string; compliance_package_id:string; product_id:string; product_name:string; sku:string; balance:number; unit:string; location_code:string };
@@ -24,15 +27,24 @@ const title = (value:string) => value.replaceAll("_"," ").replace(/\b\w/g,letter
 const fixed = (value:number) => value.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
 
 export function PackageStudioPage({initialLotId=""}:{initialLotId?:string}={}) {
+  const [params]=useSearchParams(); const planId=params.get("white_label_plan")||"";
+  const handoff=useQuery({queryKey:["white-label-handoff",planId],enabled:!!planId,retry:false,queryFn:({signal})=>apiGet<DurablePlan>(`/api/v1/white-label/plans/${encodeURIComponent(planId)}`,signal)});
+  if(planId&&!handoff.data)return <div className={handoff.error?"form-error":"state"}>{handoff.error?.message||"Loading saved execution handoff..."}</div>;
+  if(planId&&handoff.data&&!handoff.data.production_order_id)return <div className="form-error">Approve the saved plan before opening execution.</div>;
+  if(handoff.data&&["cancelled","completed"].includes(handoff.data.status))return <div className="form-error">This execution is closed. Open the saved plan to review it.</div>;
+  return <>{handoff.data?<WhiteLabelExecutionHandoff plan={handoff.data}/>:null}<PackageStudioWorkspace key={planId} initialLotId={handoff.data?.source_lot_id||initialLotId} handoff={handoff.data}/></>;
+}
+
+function PackageStudioWorkspace({initialLotId="",handoff}:{initialLotId?:string;handoff?:DurablePlan}) {
   const client=useQueryClient();
   const workspace=useQuery({queryKey:["package-studio"],queryFn:({signal})=>apiGet<Workspace>("/api/v1/package-studio/workspace",signal)});
   const [tab,setTab]=useState<"New Run"|"Source Trail"|"Recent Runs">("New Run");
-  const [actionLabel,setActionLabel]=useState<(typeof ACTIONS)[number][0]>("Breakdown");
+  const [actionLabel,setActionLabel]=useState<(typeof ACTIONS)[number][0]>(handoff?"Pack Down":"Breakdown");
   const [lotId,setLotId]=useState(initialLotId); const [outputCount,setOutputCount]=useState(2);
   const [loss,setLoss]=useState(0); const [reason,setReason]=useState(""); const [outputs,setOutputs]=useState<Output[]>([blankOutput(),blankOutput()]);
   const [confirm,setConfirm]=useState(false); const [commitMessage,setCommitMessage]=useState("");
   const lots=workspace.data?.lots??EMPTY_LOTS; const products=workspace.data?.products??EMPTY_PRODUCTS;
-  const effectiveLotId=lots.some(row=>row.lot_id===lotId)?lotId:lots.some(row=>row.lot_id===initialLotId)?initialLotId:(lots[0]?.lot_id??"");
+  const effectiveLotId=handoff?handoff.source_lot_id:lots.some(row=>row.lot_id===lotId)?lotId:lots.some(row=>row.lot_id===initialLotId)?initialLotId:(lots[0]?.lot_id??"");
   const source=lots.find(row=>row.lot_id===effectiveLotId); const actionType=ACTIONS.find(([label])=>label===actionLabel)?.[1]??"breakdown";
 
   useEffect(()=>{if(effectiveLotId&&lotId!==effectiveLotId)setLotId(effectiveLotId)},[effectiveLotId,lotId]);
@@ -40,13 +52,13 @@ export function PackageStudioPage({initialLotId=""}:{initialLotId?:string}={}) {
 
   const configuredOutputs=useMemo(()=>outputs.slice(0,outputCount).map(row=>{
     const locked=actionType==="breakdown"||actionType==="sample_pull";
-    const productId=locked?(source?.product_id??""):(row.product_id||products[0]?.product_id||"");
+    const productId=locked?(source?.product_id??""):(row.product_id||(handoff?"":products[0]?.product_id)||"");
     const product=products.find(item=>item.product_id===productId);
     const purpose=actionType==="sample_pull"?(row.purpose==="lab_sample"||row.purpose==="trade_sample"||row.purpose==="retail_sample"?row.purpose:"lab_sample"):actionType==="rework"?"rework":actionType==="correction"?"corrected":row.purpose;
     return {...row,product_id:productId,inventory_unit:row.inventory_unit==="unit"&&product?.base_unit?product.base_unit:row.inventory_unit,purpose};
-  }),[actionType,outputCount,outputs,products,source]);
+  }),[actionType,handoff,outputCount,outputs,products,source]);
   const sourceTotal=configuredOutputs.reduce((sum,row)=>sum+row.source_equivalent_quantity,0); const sourceToUse=sourceTotal+loss; const remaining=(source?.balance??0)-sourceToUse;
-  const plan=useMemo(()=>({action_type:actionType,inputs:[{lot_id:source?.lot_id??"",quantity:sourceToUse,unit:source?.unit??"unit",purpose:"source"}],outputs:configuredOutputs.map(row=>({...row,source_equivalent_unit:source?.unit??"unit",location_code:"FINISHED-GOODS",notes:""})),loss_quantity:loss,source_unit:source?.unit??"unit",reason}),[actionType,configuredOutputs,loss,reason,source,sourceToUse]);
+  const plan=useMemo(()=>({action_type:actionType,inputs:[{lot_id:source?.lot_id??"",quantity:sourceToUse,unit:source?.unit??"unit",purpose:"source"}],outputs:configuredOutputs.map(row=>({...row,source_equivalent_unit:source?.unit??"unit",location_code:"FINISHED-GOODS",notes:""})),loss_quantity:loss,source_unit:source?.unit??"unit",reason,...(handoff?{production_order_id:handoff.production_order_id,notes:`White Label plan ${handoff.id}`}:{})}),[actionType,configuredOutputs,handoff,loss,reason,source,sourceToUse]);
   const canPreview=Boolean(source&&sourceToUse>0&&sourceToUse<=source.balance+1e-9);
   const preview=useQuery({queryKey:["package-studio-preview",plan],enabled:canPreview,queryFn:()=>apiPost<Preview>("/api/v1/package-studio/preview",plan),retry:false});
   const commit=useMutation({mutationFn:()=>apiPost<CommitResult>("/api/v1/package-studio/commit",plan),onSuccess:result=>{setCommitMessage(`${result.run_number} committed with ${result.output_lot_ids.length} output package(s).`);setConfirm(false);client.invalidateQueries({queryKey:["package-studio"]})}});
@@ -57,6 +69,7 @@ export function PackageStudioPage({initialLotId=""}:{initialLotId?:string}={}) {
     <div className="ps-kicker">PACKAGE STUDIO</div><h2>Package transformation</h2><p className="ps-subtitle">Break down, pack down, build, sample, correct, and trace packages from one auditable work window.</p>
     <div className="view-tabs package-studio-tabs">{(["New Run","Source Trail","Recent Runs"] as const).map(value=><button className={tab===value?"active":""} key={value} onClick={()=>setTab(value)}>{value}</button>)}</div>
     {workspace.isLoading?<div className="state">Loading Package Studio…</div>:null}{workspace.isError?<div className="form-error">{workspace.error.message}</div>:null}
+    {handoff&&workspace.data&&!source?<div className="form-error">The approved source lot is no longer available. Review the production run before executing.</div>:null}
     {workspace.data&&tab==="New Run"?<NewRun lots={lots} products={products} source={source} lotId={effectiveLotId} setLotId={value=>{setLotId(value);setConfirm(false)}} actionLabel={actionLabel} changeAction={changeAction} actionType={actionType} outputCount={outputCount} setOutputCount={setOutputCount} loss={loss} setLoss={value=>{setLoss(value);setConfirm(false)}} reason={reason} setReason={setReason} outputs={configuredOutputs} updateOutput={updateOutput} sourceTotal={sourceTotal} sourceToUse={sourceToUse} remaining={remaining} preview={preview} canCommit={workspace.data.can_commit} confirm={confirm} setConfirm={setConfirm} commit={()=>commit.mutate()} commitPending={commit.isPending} commitError={commit.isError?commit.error.message:""} commitMessage={commitMessage}/>:null}
     {workspace.data&&tab==="Source Trail"?<SourceTrail lots={lots} initialLotId={effectiveLotId}/>:null}
     {workspace.data&&tab==="Recent Runs"?<RecentRuns runs={workspace.data.runs}/>:null}
@@ -86,7 +99,7 @@ function OutputCard({index,row,actionType,products,source,update}:{index:number;
   const purposeOptions=actionType==="sample_pull"?["Lab sample","Trade sample","Retail sample"]:["Standard output","Trade sample","Retail sample"];
   const purposeLabel=Object.entries(PURPOSES).find(([,value])=>value===row.purpose)?.[0]??purposeOptions[0];
   return <article className="inventory-panel package-output-card"><div className="ps-output-caption">OUTPUT {index+1}</div><div className="package-output-grid">
-    <label>Output product{locked?<input value={product?.name??""} disabled/>:<select value={productId} onChange={event=>{const next=products.find(item=>item.product_id===event.target.value);update({product_id:event.target.value,inventory_unit:next?.base_unit||"unit"})}}>{products.map(item=><option value={item.product_id} key={item.product_id}>{productLabel(item)}</option>)}</select>}</label>
+    <label>Output product{locked?<input value={product?.name??""} disabled/>:<select value={productId} onChange={event=>{const next=products.find(item=>item.product_id===event.target.value);update({product_id:event.target.value,inventory_unit:next?.base_unit||"unit"})}}><option value="">Select actual output product</option>{products.map(item=><option value={item.product_id} key={item.product_id}>{productLabel(item)}</option>)}</select>}</label>
     <label>Lot / package code<input value={row.lot_code} placeholder={`PS-${String(index+1).padStart(2,"0")}`} onChange={event=>update({lot_code:event.target.value})}/></label>
     <label>METRC package tag<input value={row.compliance_package_id} placeholder="Optional in Phase 1" onChange={event=>update({compliance_package_id:event.target.value})}/></label>
     <label>Finished quantity<input type="number" min={0} step={1} value={row.inventory_quantity} onChange={event=>update({inventory_quantity:Number(event.target.value)})}/></label>

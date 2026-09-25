@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
+import { WhiteLabelRunHandoff } from "../components/WhiteLabelExecutionHandoff";
 import { ProductionActualMaterials } from "../components/ProductionActualMaterials";
 import { RegulatoryDetailPanel } from "../components/RegulatoryDetailPanel";
 import { apiGet, apiPost } from "../lib/api";
@@ -74,6 +75,7 @@ export function ProductionRun360Page({ onNavigate, initialOrderId="" }:{ onNavig
     {queue.data?.length?<section className="inventory-panel"><label>Production run<select aria-label="Production run" value={orderId} onChange={event=>selectRun(event.target.value)}>{orderId&&!queue.data.some(row=>row.order_id===orderId)?<option value={orderId}>Requested run · {orderId}</option>:null}{queue.data.map(row=><option value={row.order_id} key={row.order_id}>{row.Order} · {row.Product} · {row.Status} · {row.Attention}</option>)}</select></label></section>:!queue.isLoading&&!orderId?<div className="info-banner">No production orders exist yet. Create a production job first.</div>:null}
     {detail.isLoading?<div className="state">Building Run 360…</div>:null}
     {detail.isError?<div className="warning-banner">The requested production run could not be opened. No other run was selected in its place. {detail.error.message}</div>:null}
+    {detail.data&&!detail.isError?<WhiteLabelRunHandoff notes={detail.data.order.notes}/>:null}
     {detail.data&&!detail.isError?<RunDetail key={detail.data.order.id} detail={detail.data} products={workspace.data??[]} onChanged={refresh}/>:null}
   </div>;
 }
