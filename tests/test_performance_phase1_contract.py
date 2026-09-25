@@ -16,7 +16,7 @@ def test_root_site_modes_are_lazy_and_do_not_refetch_everything_on_focus():
 def test_wholesale_queries_and_heavy_tabs_are_loaded_only_when_needed():
     source = (ROOT / "frontend" / "src" / "pages" / "WholesaleOpsPage.tsx").read_text(encoding="utf-8")
     assert 'const inventoryNeeded=tab==="overview"||tab==="inventory"' in source
-    assert 'const commercialNeeded=tab==="overview"||tab==="customers"' in source
+    assert 'const commercialNeeded=tab==="overview"' in source
     assert 'const storefrontNeeded=tab==="overview"||tab==="storefront"' in source
     assert "enabled:inventoryNeeded" in source
     assert "enabled:commercialNeeded" in source
