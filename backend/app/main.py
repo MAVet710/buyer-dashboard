@@ -214,6 +214,7 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get(f"{settings.api_prefix.rstrip('/')}/health/ready", tags=["system"], include_in_schema=False)
 @app.get("/health/ready", tags=["system"])
 def readiness(engine: Engine = Depends(get_engine)) -> dict:
     with engine.connect() as connection:

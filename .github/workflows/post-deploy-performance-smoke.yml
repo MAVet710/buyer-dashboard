@@ -38,7 +38,7 @@ jobs:
             code="$(curl --silent --show-error --max-time 30 \
               --output /tmp/ready.json \
               --write-out '%{http_code}' \
-              "$PRODUCTION_ORIGIN/health/ready" || true)"
+              "$PRODUCTION_ORIGIN/api/v1/health/ready" || true)"
 
             if [ "$code" = "200" ] && jq -e '.schema_matches == true and (.schema_revision | length > 0)' /tmp/ready.json >/dev/null 2>&1; then
               first_success="$(date +%s)"
@@ -68,7 +68,7 @@ jobs:
             result="$(curl --silent --show-error --max-time 15 \
               --output "/tmp/warm-ready-$attempt.json" \
               --write-out '%{http_code} %{time_total}' \
-              "$PRODUCTION_ORIGIN/health/ready")"
+              "$PRODUCTION_ORIGIN/api/v1/health/ready")"
             code="${result%% *}"
             seconds="${result##* }"
             if [ "$code" != "200" ]; then
