@@ -100,6 +100,6 @@ export const marketingFaqs = [
   {
     question: "How do we get access, and what happens next?",
     answer:
-      "Apply through the Beta Partner Program. Tell us your operation type, state, facilities, current systems and biggest operational problem. The team reviews fit for the current phase; approved partners receive onboarding access and take part in agreed testing and feedback.",
+      "Apply through the Founding Operator Beta. Tell us your operation type, state, facilities, current systems, first workflow to prove and preferred start window. The team reviews fit for the current cohort; selected operators get guided implementation, establish a baseline, run agreed workflows and review measured outcomes at 30 / 60 / 90 days.",
   },
 ] as const;

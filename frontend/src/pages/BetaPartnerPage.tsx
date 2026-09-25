@@ -97,8 +97,10 @@ export function BetaPartnerPage() {
         role: String(data.get("role") ?? ""),
         operation: String(data.get("operation") ?? ""),
         facilities: String(data.get("facilities") ?? ""),
+        primary_workflow: String(data.get("primary_workflow") ?? ""),
         stack: String(data.get("stack") ?? ""),
         state: String(data.get("state") ?? ""),
+        timeline: String(data.get("timeline") ?? ""),
         pain: String(data.get("pain") ?? ""),
         must_have: String(data.get("must_have") ?? ""),
         consent: data.get("consent") === "on",
@@ -124,43 +126,43 @@ export function BetaPartnerPage() {
           </a>
           <div className="beta-nav-links">
             <a href="#platform">Platform</a>
-            <a href="#program">Beta Program</a>
+            <a href="#program">Founding Program</a>
             <a href="#data">Your Data</a>
           </div>
-          <a className="beta-nav-primary" href="#apply">Apply for Beta</a>
+          <a className="beta-nav-primary" href="#apply">Apply for Founding Beta</a>
         </nav>
       </header>
 
       <main>
         <section className="beta-hero">
           <div className="beta-hero-copy">
-            <div className="marketing-eyebrow">DoobieLogic Beta Partner Program</div>
-            <h1>Help build the operating system <span>cannabis deserves.</span></h1>
+            <div className="marketing-eyebrow">DoobieLogic Founding Operator Beta</div>
+            <h1>Put DoobieLogic against real work. <span>Help prove what works.</span></h1>
             <p>
-              DoobieLogic brings purchasing, inventory, receiving, compliance, production, extraction, wholesale, customer ordering, and operational intelligence into one platform built for the people actually running cannabis businesses.
+              We’re selecting licensed cannabis operators to run agreed workflows inside DoobieLogic with guided implementation, direct support, and no subscription fee during the approved beta period. In return, we measure the before-and-after and collect structured feedback.
             </p>
             <div className="beta-hero-actions">
-              <a className="marketing-primary" href="#apply">Apply for Free Beta Access <ArrowRight size={18} /></a>
-              <a className="marketing-secondary" href="#platform">See what you&apos;ll test</a>
+              <a className="marketing-primary" href="#apply">Apply for Founding Operator Beta <ArrowRight size={18} /></a>
+              <a className="marketing-secondary" href="#platform">See the pilot process</a>
             </div>
             <div className="beta-proof-line">
-              <span><CircleCheck size={15} /> No beta subscription fee</span>
-              <span><CircleCheck size={15} /> Built with real operators</span>
-              <span><CircleCheck size={15} /> Your data stays yours</span>
+              <span><CircleCheck size={15} /> Guided implementation</span>
+              <span><CircleCheck size={15} /> No subscription fee during beta</span>
+              <span><CircleCheck size={15} /> No positive testimonial required</span>
             </div>
           </div>
 
           <aside className="beta-partner-card">
             <span className="beta-open-badge"><i /> Applications Open</span>
-            <h2>Become a Beta Partner</h2>
-            <p>Get early access to DoobieLogic while helping us validate how the platform performs inside real cannabis operations.</p>
-            <div className="beta-price">$0 <small>/ beta access</small></div>
+            <h2>Founding Operator Beta</h2>
+            <p>A limited operator cohort designed to prove DoobieLogic against real workflows, with hands-on setup and measurable outcomes.</p>
+            <div className="beta-price">$0 <small>/ approved beta period</small></div>
             <div className="beta-card-divider" />
             {[
-              "Early access to approved DoobieLogic modules",
-              "Direct line to the development team",
-              "Influence product priorities and workflows",
-              "Priority onboarding and beta support",
+              "Workflow mapping and guided implementation",
+              "Import and migration help for agreed workflows",
+              "Direct line to the product team",
+              "30 / 60 / 90-day outcome reviews",
             ].map((item) => <div className="beta-check-row" key={item}><CircleCheck size={17} /> <span>{item}</span></div>)}
           </aside>
         </section>
@@ -188,29 +190,29 @@ export function BetaPartnerPage() {
         <section className="beta-section" id="program">
           <div className="beta-section-inner">
             <div className="beta-section-heading">
-              <div className="marketing-eyebrow">The partnership</div>
-              <h2>Free access isn&apos;t the catch. Participation is the trade.</h2>
-              <p>The beta program is a genuine partnership. We give selected operators meaningful access to the platform. In return, we ask them to help us make it better.</p>
+              <div className="marketing-eyebrow">Founding Operator Program</div>
+              <h2>The trade is real usage, not praise.</h2>
+              <p>Selected operators get hands-on implementation and a defined pilot. In return, we establish a baseline, run agreed workflows, measure the outcome, and use structured feedback to improve the product.</p>
             </div>
             <div className="beta-exchange-grid">
               <article className="beta-exchange-card highlight">
                 <div className="marketing-eyebrow">You receive</div>
-                <h3>DoobieLogic Beta Access</h3>
+                <h3>Guided DoobieLogic Pilot</h3>
                 {[
-                  "Free access during your approved beta period",
-                  "Early access to new workflows and tools",
-                  "Direct feedback channel with development",
-                  "A voice in what DoobieLogic becomes",
+                  "No subscription fee during your approved beta period",
+                  "Workflow mapping and guided implementation",
+                  "Import and migration support for agreed workflows",
+                  "Direct product-team access and priority beta support",
                 ].map((item) => <div className="beta-check-row" key={item}><CircleCheck size={17} /><span>{item}</span></div>)}
               </article>
               <article className="beta-exchange-card">
                 <div className="marketing-eyebrow">We ask</div>
-                <h3>Real Testing & Feedback</h3>
+                <h3>Real Usage & Measured Feedback</h3>
                 {[
-                  "Use the platform in agreed testing workflows",
-                  "Report problems, friction, and missing functionality",
-                  "Share approved usage, diagnostic, or operational test data that helps improve the product",
-                  "Participate in occasional structured feedback",
+                  "Use the platform in agreed real-world workflows",
+                  "Establish a baseline before the pilot goes live",
+                  "Allow agreed workflow outcomes to be measured at 30 / 60 / 90 days",
+                  "Report friction and missing functionality. A positive testimonial is never required",
                 ].map((item) => <div className="beta-check-row" key={item}><CircleCheck size={17} /><span>{item}</span></div>)}
               </article>
             </div>
@@ -218,8 +220,8 @@ export function BetaPartnerPage() {
             <div className="beta-data-card" id="data">
               <ShieldCheck size={30} />
               <div>
-                <h3>Your data stays yours. Your experience helps shape DoobieLogic.</h3>
-                <p>Beta partners help us understand how the platform performs in real cannabis operations. The information you choose to share helps us find problems, improve workflows, and build better tools. We use it to make DoobieLogic better, not to make your business our business.</p>
+                <h3>Your data stays yours. Outcome proof stays permissioned.</h3>
+                <p>Founding operators help us understand how DoobieLogic performs in real cannabis operations. We measure only agreed workflow outcomes, and any testimonial or case study requires separate approval. Participation never requires a positive public statement.</p>
               </div>
             </div>
           </div>
@@ -229,20 +231,21 @@ export function BetaPartnerPage() {
           <div className="beta-apply-layout beta-section-inner">
             <div className="beta-apply-copy">
               <div className="marketing-eyebrow">Apply to join</div>
-              <h2>We want operators who will push the platform.</h2>
-              <p>Retail. Cultivation. Manufacturing. Extraction. Wholesale. Vertically integrated. We want partners who understand the work and aren&apos;t afraid to tell us what isn&apos;t good enough yet.</p>
+              <h2>We want operators willing to measure the before and after.</h2>
+              <p>Retail. Cultivation. Manufacturing. Extraction. Wholesale. Vertically integrated. We want licensed operators with a real workflow they want to improve and a team willing to test it seriously.</p>
               <div className="beta-steps">
-                <span><b>1</b> Tell us about your operation.</span>
-                <span><b>2</b> We review fit for the current beta phase.</span>
-                <span><b>3</b> Approved partners receive onboarding access.</span>
-                <span><b>4</b> You help shape what ships next.</span>
+                <span><b>1</b> Apply and tell us which workflow hurts.</span>
+                <span><b>2</b> We review fit for the current beta cohort.</span>
+                <span><b>3</b> We map the workflow and establish a baseline.</span>
+                <span><b>4</b> Your team runs the guided live pilot.</span>
+                <span><b>5</b> We review outcomes at 30 / 60 / 90 days.</span>
               </div>
             </div>
 
             <form className="beta-form" onSubmit={handleSubmit}>
               <div className="beta-form-heading">
-                <div><h3>Beta Partner Application</h3><p>Tell us enough to understand where DoobieLogic could help.</p></div>
-                <span>FREE TO APPLY</span>
+                <div><h3>Founding Operator Application</h3><p>Tell us what you run today, what workflow you want to improve, and when you want to start.</p></div>
+                <span>NO BETA SUBSCRIPTION FEE</span>
               </div>
               <div className="beta-form-grid">
                 <label>Full name<input name="name" autoComplete="name" required placeholder="Your name" /></label>
@@ -251,16 +254,18 @@ export function BetaPartnerPage() {
                 <label>Your role<input name="role" required placeholder="Buyer, GM, Compliance..." /></label>
                 <label>Operation type<select name="operation" required defaultValue=""><option value="" disabled>Select one</option><option>Retail</option><option>Cultivation</option><option>Manufacturing / Production</option><option>Extraction</option><option>Wholesale / Distribution</option><option>Vertically Integrated</option><option>Other</option></select></label>
                 <label>Facilities / licenses<select name="facilities" required defaultValue=""><option value="" disabled>Select range</option><option>1</option><option>2–3</option><option>4–10</option><option>11+</option></select></label>
+                <label>Primary pilot workflow<select name="primary_workflow" required defaultValue=""><option value="" disabled>Select the first workflow to prove</option><option>Inventory & Receiving</option><option>Extraction & Production</option><option>Purchasing</option><option>Wholesale & Fulfillment</option><option>Compliance & Metrc</option><option>Multi-workflow / Vertically Integrated</option></select></label>
                 <label>Primary POS / ERP<input name="stack" placeholder="Dutchie, Treez, spreadsheets..." /></label>
                 <label>State<input name="state" required placeholder="MA" /></label>
+                <label>Desired start<select name="timeline" required defaultValue=""><option value="" disabled>Select timeframe</option><option>As soon as possible</option><option>Within 30 days</option><option>Within 60–90 days</option><option>Exploring for later</option></select></label>
                 <label className="full">What&apos;s the biggest operational problem you want DoobieLogic to solve?<textarea name="pain" required minLength={10} placeholder="Tell us where your team loses the most time, money, or visibility..." /></label>
                 <label className="full">What would make DoobieLogic indispensable to your operation?<textarea name="must_have" placeholder="The feature or outcome you would never want to work without..." /></label>
                 <label className="beta-honeypot" aria-hidden="true">Website<input name="website" tabIndex={-1} autoComplete="off" /></label>
               </div>
-              <label className="beta-consent"><input name="consent" type="checkbox" required /><span>I understand beta participation includes structured feedback and the sharing of approved usage, diagnostic, or operational test data under the Beta Participation & Data Use Agreement.</span></label>
-              <button className="beta-submit" type="submit" disabled={submitting}>{submitting ? "Submitting..." : <>Submit Beta Application <ArrowRight size={18} /></>}</button>
+              <label className="beta-consent"><input name="consent" type="checkbox" required /><span>I understand beta participation includes structured feedback and agreed before-and-after workflow measurement under the Beta Participation & Data Use Agreement. Any testimonial or case study requires separate approval.</span></label>
+              <button className="beta-submit" type="submit" disabled={submitting}>{submitting ? "Submitting..." : <>Submit Founding Operator Application <ArrowRight size={18} /></>}</button>
               {error && <div className="beta-error" role="alert">{error}</div>}
-              {submitted && <div className="beta-success" role="status"><strong>Application received.</strong><span>Thanks for putting your hand up. The DoobieLogic team will review your application and follow up using the email you provided.</span></div>}
+              {submitted && <div className="beta-success" role="status"><strong>Founding Operator application received.</strong><span>We’ll review fit and follow up using the email you provided. If selected, the first step is a workflow-baseline and implementation-fit call, not a generic sales demo.</span></div>}
             </form>
           </div>
         </section>
@@ -268,7 +273,7 @@ export function BetaPartnerPage() {
 
       <footer className="beta-footer">
         <div className="marketing-brand"><img className="marketing-brand-image" src={BRAND_IMAGE_URL} alt="DoobieLogic" /><span className="marketing-wordmark"><strong>Doobie</strong><em>Logic</em></span></div>
-        <span>Commercial-ready cannabis intelligence system.</span>
+        <span>Built for licensed cannabis operators.</span>
         <span>Powered by Good Weed and Data</span>
       </footer>
     </div>
