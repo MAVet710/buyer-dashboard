@@ -123,3 +123,17 @@ export function entityContextForPath(pathname: string): WorkspaceEntityContext |
 export function canonicalWorkspaceRoutes(): ReadonlyArray<RouteEntry> {
   return ROUTES;
 }
+
+// Use canonical record IDs rather than display names or fuzzy filters.
+export function pathForSearchResult(row: { kind: string; id: string; workspace: string }): string {
+  const id = encodeURIComponent(row.id);
+  switch (row.kind) {
+    case "package":
+    case "lot": return `/inventory/packages/${id}`;
+    case "production order": return `/production/runs/${id}`;
+    case "commercial order": return `/wholesale/orders?order=${id}`;
+    case "partner": return `/wholesale/orders?partner=${id}`;
+    case "plant": return `/cultivation?plant=${id}`;
+    default: return pathForPage(row.workspace);
+  }
+}

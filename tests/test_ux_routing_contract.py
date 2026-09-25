@@ -54,8 +54,8 @@ def test_app_preserves_legacy_pending_page_while_browser_history_becomes_authori
     assert 'sessionStorage.getItem("buyer-dash-pending-page")' in app
     assert 'sessionStorage.removeItem("buyer-dash-pending-page")' in app
     pending_block = app.split('const pending = sessionStorage.getItem("buyer-dash-pending-page");', 1)[1].split('if (location.pathname === "/")', 1)[0]
-    assert "if (pendingPath === location.pathname)" in pending_block
-    assert pending_block.index("if (pendingPath === location.pathname)") < pending_block.index('sessionStorage.removeItem("buyer-dash-pending-page")')
+    assert "if (pendingPath === location.pathname + location.search)" in pending_block
+    assert pending_block.index("if (pendingPath === location.pathname + location.search)") < pending_block.index('sessionStorage.removeItem("buyer-dash-pending-page")')
 
 
 def test_one_authoritative_operation_context_owns_inventory_mode():

@@ -65,7 +65,7 @@ def test_production_inventory_and_cultivation_ops_preserve_material_plant_adjust
     service = read("backend/app/services/inventory.py")
 
     assert 'const PRODUCTION_VIEWS = ["All Material", "Bulk Flower", "Biomass / Trim", "Extraction Input", "WIP", "Finished Bulk", "Production Ready", "Low Balance", "Quarantine / Hold"]' in page
-    assert '<PlantInventory />' in cultivation
+    assert '<PlantInventory initialPlantId={initialPlantId} />' in cultivation
     assert "CULTIVATION OPS" in cultivation
     assert "Plant 360" in plants and "Lifecycle history" in plants
     assert "Select all visible plants" in plants and "Move / change phase" in plants

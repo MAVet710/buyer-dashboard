@@ -1,7 +1,7 @@
 import { PlantInventory } from "../components/PlantInventory";
 import { PostHarvestHandoffSummary } from "../components/PostHarvestHandoffSummary";
 
-export function CultivationOpsPage({ onNavigate }: { onNavigate: (page: string) => void }) {
+export function CultivationOpsPage({ onNavigate, initialPlantId = "" }: { initialPlantId?: string; onNavigate: (page: string) => void }) {
   return <div className="page cultivation-ops-page">
     <div className="page-heading">
       <div>
@@ -12,6 +12,6 @@ export function CultivationOpsPage({ onNavigate }: { onNavigate: (page: string) 
       <span className="access-badge">Grow workspace</span>
     </div>
     <PostHarvestHandoffSummary onOpen={() => onNavigate("Post-Harvest")} />
-    <PlantInventory />
+    <PlantInventory initialPlantId={initialPlantId} />
   </div>;
 }

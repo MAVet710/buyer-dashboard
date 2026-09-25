@@ -37,6 +37,7 @@ const RETAIL_PRIMARY: PrimaryItem[] = [
 const CULTIVATION_PRIMARY: PrimaryItem[] = [
   { label: "Home", icon: Home, defaultPage: "Home" },
   { label: "Cultivation", icon: Sprout, defaultPage: "Cultivation" },
+  { label: "Wholesale", icon: Store, defaultPage: "Wholesale Ops" },
   { label: "Compliance", icon: ShieldCheck, defaultPage: "Compliance" },
   { label: "Reports", icon: BarChart3, defaultPage: "Executive Reports" },
 ];
@@ -249,7 +250,7 @@ export function AppShell({ children, active, onNavigate }: PropsWithChildren<{ a
   const primaryBase = primaryForOperation(operation);
   const primary = context.data?.capabilities.commercial === false ? primaryBase.filter(row => row.label !== "Wholesale") : primaryBase;
   const activeCategory = categoryForPage(active, operation);
-  const secondary = secondaryItems(activeCategory, operation, role).filter(item => !item.roles || item.roles.includes(role as never));
+  const secondary = activeCategory === "Wholesale" && context.data?.capabilities.commercial === false ? [] : secondaryItems(activeCategory, operation, role).filter(item => !item.roles || item.roles.includes(role as never));
   const settings = dataSettingsItems(role).filter(item => !item.roles || item.roles.includes(role as never));
 
   const routeToOperation = (page: string, mode: OperationMode) => {
@@ -320,7 +321,7 @@ export function AppShell({ children, active, onNavigate }: PropsWithChildren<{ a
         {secondary.length ? <><div className="operation-label">Current area</div><nav className="secondary-nav" aria-label={`${activeCategory} tools`}>{secondary.map(row => <button className={row.page === active ? "nav-item active" : "nav-item"} key={row.page} onClick={() => navigate(row.page)}><span>{row.label}</span></button>)}</nav></> : null}
         {operation === "Retail Ops" ? <details className="sidebar-expander"><summary>Data source</summary><div><label className="compact-field">Buyer data mode<select className="data-mode-select" value={dataMode} onChange={event => changeDataMode(event.target.value === "Dutchie Live" ? "Dutchie Live" : "Uploads")}><option value="Uploads">📁 Uploads</option><option value="Dutchie Live">🔴 Dutchie Live</option></select></label></div></details> : null}
         <details className="sidebar-expander"><summary><Settings size={15}/> Settings & Administration</summary><nav className="secondary-nav" aria-label="Settings and administration">{settings.map(row => <button className={row.page === active ? "nav-item active" : "nav-item"} key={row.page} onClick={() => navigate(row.page)}><span>{row.label}</span></button>)}</nav></details>
-      </> : <ClassicNavigation operation={operation} role={role} active={active} onNavigate={navigate}/>} 
+      </> : <ClassicNavigation commercial={context.data?.capabilities.commercial !== false} operation={operation} role={role} active={active} onNavigate={navigate}/>}
       <WorkspaceAgent activePage={active} operation={operation} onNavigate={navigate}/>
       <details className="sidebar-expander"><summary>Navigation options</summary><div><label className="toggle"><input type="checkbox" checked={classicNavigation} onChange={event => setClassicNavigation(event.target.checked)}/> Use classic navigation</label></div></details>
     </aside>
@@ -347,7 +348,7 @@ function MobileNavigation({ primary, category, secondary, settings, active, oper
   return <section className="mobile-flat-navigation"><div className="eyebrow">DoobieLogic</div><select aria-label="Navigate" value={primaryValue} onChange={event => { const row = primary.find(item => item.label === event.target.value); if (row) onCategory(row); }}>{primary.map(row => <option key={row.label} value={row.label}>{row.label}</option>)}</select>{secondary.length ? <select aria-label="Tool" value={secondary.some(row => row.page === active) ? active : secondary[0].page} onChange={event => onNavigate(event.target.value)}>{secondary.map(row => <option key={row.page} value={row.page}>{row.label}</option>)}</select> : null}<select aria-label="Settings and administration" value={settings.some(row => row.page === active) ? active : ""} onChange={event => { if (event.target.value) onNavigate(event.target.value); }}><option value="">Settings & administration</option>{settings.map(row => <option key={row.page} value={row.page}>{row.label}</option>)}</select>{operation === "Retail Ops" ? <select className="mobile-data-mode-select" aria-label="Buyer data mode" value={dataMode} onChange={event => onDataMode(event.target.value === "Dutchie Live" ? "Dutchie Live" : "Uploads")}><option value="Uploads">📁 Uploads</option><option value="Dutchie Live">🔴 Dutchie Live</option></select> : null}</section>;
 }
 
-function ClassicNavigation({ operation, role, active, onNavigate }: { operation: OperationMode; role: string; active: string; onNavigate: (page: string) => void }) {
+function ClassicNavigation({ commercial, operation, role, active, onNavigate }: { commercial: boolean; operation: OperationMode; role: string; active: string; onNavigate: (page: string) => void }) {
   const groups = operation === "Production Ops"
     ? [
       { label: "Operations Home", pages: secondaryItems("Home", operation, role) },
@@ -362,6 +363,7 @@ function ClassicNavigation({ operation, role, active, onNavigate }: { operation:
       ? [
         { label: "Operations Home", pages: secondaryItems("Home", operation, role) },
         { label: "Grow Operations", pages: secondaryItems("Cultivation", operation, role) },
+        { label: "Wholesale Ops", pages: secondaryItems("Wholesale", operation, role) },
         { label: "Compliance", pages: secondaryItems("Compliance", operation, role) },
         { label: "Reports", pages: secondaryItems("Reports", operation, role) },
         { label: "Data & Integrations", pages: dataSettingsItems(role) },
@@ -375,5 +377,5 @@ function ClassicNavigation({ operation, role, active, onNavigate }: { operation:
         { label: "Reports", pages: secondaryItems("Reports", operation, role) },
         { label: "Data & Integrations", pages: dataSettingsItems(role) },
       ];
-  return <>{groups.map(group => <div key={group.label}><div className="operation-label">{group.label}</div><nav>{group.pages.filter(row => !row.roles || row.roles.includes(role as never)).map(row => <button className={active === row.page ? "nav-item active" : "nav-item"} key={`${group.label}-${row.page}`} onClick={() => onNavigate(row.page)}>{row.label}</button>)}</nav></div>)}</>;
+  return <>{groups.filter(group => commercial || group.label !== "Wholesale Ops").map(group => <div key={group.label}><div className="operation-label">{group.label}</div><nav>{group.pages.filter(row => !row.roles || row.roles.includes(role as never)).map(row => <button className={active === row.page ? "nav-item active" : "nav-item"} key={`${group.label}-${row.page}`} onClick={() => onNavigate(row.page)}>{row.label}</button>)}</nav></div>)}</>;
 }

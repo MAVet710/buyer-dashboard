@@ -22,7 +22,7 @@ type Ar = {total_ar:number;buckets:{current:number;"1_30":number;"31_60":number;
 const OPEN = new Set(["draft","confirmed","allocated","partially_fulfilled"]);
 const TAB_LABELS:[Tab,string][]=[["command","Command Center"],["new","New Order"],["execute","Allocate & Fulfill"],["partners","Trade Partners"],["audits","Inventory Audits"],["ledger","Inventory Ledger"]];
 
-export function OrdersPage(){
+export function OrdersPage({initialOrderId="",initialPartnerId=""}:{initialOrderId?:string;initialPartnerId?:string}){
   const [tab,setTab]=useState<Tab>("command");
   const [financeOpen,setFinanceOpen]=useState(false);
   const client=useQueryClient();
@@ -35,6 +35,7 @@ export function OrdersPage(){
     <div className="view-tabs parity-tabs" role="tablist">{TAB_LABELS.map(([key,label])=><button key={key} role="tab" aria-selected={tab===key} className={tab===key?"active":""} onClick={()=>setTab(key)}>{label}</button>)}</div>
     {workspace.isError?<div className="state error">Commercial data could not be loaded: {workspace.error.message}</div>:null}
     {!data&&!workspace.isError?<div className="state">Loading commercial operations…</div>:null}
+    {data&&(initialOrderId||initialPartnerId)?<SearchFocus data={data} orderId={initialOrderId} partnerId={initialPartnerId}/>:null}
     {data&&tab==="command"?<CommandCenter data={data}/>:null}
     {data&&tab==="new"?<NewOrder data={data} onSaved={refresh}/>:null}
     {data&&tab==="execute"?<Execution data={data} onSaved={refresh}/>:null}
@@ -43,6 +44,16 @@ export function OrdersPage(){
     {data&&tab==="ledger"?<Ledger rows={data.transactions}/>:null}
     {data?<WholesaleFinance open={financeOpen} onClose={()=>setFinanceOpen(false)} data={data}/>:null}
   </div>;
+}
+
+function SearchFocus({data,orderId,partnerId}:{data:Workspace;orderId:string;partnerId:string}){
+  const detail=useQuery({queryKey:["commercial-order",orderId],queryFn:({signal})=>apiGet<Detail>(`/api/v1/commercial/orders/${encodeURIComponent(orderId)}`,signal),enabled:Boolean(orderId)});
+  const partner=data.partners.find(row=>row.id===partnerId);
+  const orders=data.orders.filter(row=>row.partner_id===partnerId);
+  return <section className="inventory-panel" aria-label="Search result focus">
+    {orderId?<><h2>Selected order</h2>{detail.isLoading?<div className="state">Loading selected order...</div>:null}{detail.isError?<div className="state error">The requested order could not be loaded: {detail.error.message}</div>:null}{detail.data?<><h3>{detail.data.order.order_number}</h3><p>{data.partners.find(row=>row.id===detail.data?.order.partner_id)?.name || "Trade partner"} / {title(detail.data.order.status)}</p><DataTable rows={detail.data.lines.map(line=>({Product:line.description,Ordered:line.quantity,Fulfilled:line.fulfilled_quantity,Unit:line.unit}))}/></>:null}</>:null}
+    {partnerId?<><h2>Selected trade partner</h2>{partner?<><h3>{partner.name}</h3><p>{partner.partner_type} · {partner.license_or_registration} · {partner.contact_name} · {partner.contact_email}</p>{orders.map(row=><OrderCard key={row.id} row={row}/>)}{!orders.length?<p>No orders for this partner in the loaded workspace.</p>:null}</>:<p>The requested partner is not available in the active facility.</p>}</>:null}
+  </section>;
 }
 
 function CommandCenter({data}:{data:Workspace}){
