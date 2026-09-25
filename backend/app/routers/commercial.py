@@ -25,7 +25,11 @@ class PaymentCreate(BaseModel):
     amount_usd: float; method: str = "other"; reference: str = ""; payment_date: date | None = None; notes: str = ""
 class ShipmentCreate(BaseModel):
     shipment_number: str; manifest_reference: str = ""; carrier: str = ""; tracking_reference: str = ""
-class ShipmentStatus(BaseModel): status: str
+class ShipmentStatus(BaseModel):
+    status: str
+    manifest_reference: str | None = None
+    carrier: str | None = None
+    tracking_reference: str | None = None
 class PartnerCreate(BaseModel):
     name: str; partner_type: str; license_or_registration: str = ""; contact_name: str = ""; contact_email: str = ""; contact_phone: str = ""; payment_terms: str = "Net 30"
 class AllocationCreate(BaseModel): lot_id: str; quantity: float
@@ -231,7 +235,7 @@ def save_customer_price(payload: CustomerPriceCreate, context: RequestContext = 
 @router.post("/orders/{order_id}/invoices", status_code=201)
 def create_invoice(order_id: str, payload: InvoiceCreate, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
     try:
-        row = CommercialFinanceService(engine).create_invoice_from_order(organization_id=context.organization_id, facility_id=context.facility_id, order_id=order_id, actor=context.user_id, **payload.model_dump())
+        row = CommercialFinanceService(engine).create_invoice_from_order(organization_id=context.organization_id, facility_id=context.facility_id, order_id=order_id, actor=context.user_id, require_fulfilled=True, **payload.model_dump())
         return {key: getattr(row, key) for key in ("id", "invoice_number", "status", "total_usd", "balance_usd", "due_date")}
     except ValueError as exc: raise HTTPException(422, str(exc)) from exc
 
@@ -256,5 +260,5 @@ def create_shipment(order_id: str, payload: ShipmentCreate, context: RequestCont
 @router.post("/shipments/{shipment_id}/status")
 def shipment_status(shipment_id: str, payload: ShipmentStatus, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
     try:
-        row = CommercialFinanceService(engine).update_shipment_status(organization_id=context.organization_id, facility_id=context.facility_id, shipment_id=shipment_id, status=payload.status); return {"id": row.id, "status": row.status, "shipped_at": row.shipped_at, "delivered_at": row.delivered_at}
+        row = CommercialFinanceService(engine).update_shipment_status(organization_id=context.organization_id, facility_id=context.facility_id, shipment_id=shipment_id, **payload.model_dump()); return {"id": row.id, "status": row.status, "manifest_reference": row.manifest_reference, "carrier": row.carrier, "tracking_reference": row.tracking_reference, "shipped_at": row.shipped_at, "delivered_at": row.delivered_at}
     except ValueError as exc: raise HTTPException(422, str(exc)) from exc

@@ -36,6 +36,7 @@ class CommercialFinanceService:
         due_days: int = 30,
         discount_usd: float = 0.0,
         tax_usd: float = 0.0,
+        require_fulfilled: bool = False,
     ) -> CommercialInvoice:
         if not str(invoice_number or "").strip():
             raise ValueError("Invoice number is required.")
@@ -45,6 +46,8 @@ class CommercialFinanceService:
             order = self._order(session, organization_id, facility_id, order_id)
             if order.order_type != "sales":
                 raise ValueError("Only sales orders can become customer invoices.")
+            if require_fulfilled and order.status != "fulfilled":
+                raise ValueError("Complete sales-order fulfillment before creating the customer invoice.")
             existing = session.scalar(select(CommercialInvoice).where(CommercialInvoice.organization_id == organization_id, CommercialInvoice.invoice_number == invoice_number.strip()))
             if existing:
                 return existing
@@ -171,7 +174,17 @@ class CommercialFinanceService:
                 raise ValueError("Shipment number is required.")
             session.add(shipment); session.flush(); return shipment
 
-    def update_shipment_status(self, *, organization_id: str, facility_id: str, shipment_id: str, status: str) -> CommercialShipment:
+    def update_shipment_status(
+        self,
+        *,
+        organization_id: str,
+        facility_id: str,
+        shipment_id: str,
+        status: str,
+        manifest_reference: str | None = None,
+        carrier: str | None = None,
+        tracking_reference: str | None = None,
+    ) -> CommercialShipment:
         status = str(status or "").strip().casefold()
         allowed = {"planned","picking","packed","manifested","shipped","delivered","cancelled"}
         if status not in allowed:
@@ -180,6 +193,14 @@ class CommercialFinanceService:
             shipment = session.get(CommercialShipment, shipment_id)
             if not shipment or shipment.organization_id != organization_id or shipment.facility_id != facility_id:
                 raise ValueError("Shipment was not found in the active facility.")
+            if manifest_reference is not None:
+                shipment.manifest_reference = str(manifest_reference).strip()
+            if carrier is not None:
+                shipment.carrier = str(carrier).strip()
+            if tracking_reference is not None:
+                shipment.tracking_reference = str(tracking_reference).strip()
+            if status in {"manifested", "shipped", "delivered"} and not str(shipment.manifest_reference or "").strip():
+                raise ValueError("Manifest reference is required before a shipment can be manifested or shipped.")
             shipment.status = status
             if status == "shipped" and shipment.shipped_at is None:
                 shipment.shipped_at = utc_now()

@@ -42,6 +42,26 @@ type PendingStorefrontOrder = {
   lines?:Array<{product_id:string;name?:string;quantity:number;unit?:string}>;
 };
 type StorefrontSnapshot = { storefront:{published:boolean}|null; pending_orders:PendingStorefrontOrder[] };
+type OrderToCashException = {
+  kind:"qa_hold"|"customer_ar_pending_order"|"low_margin_order"|"waiting_manifest"|"late_fulfillment"|"invoice_ar_handoff"|string;
+  severity:"high"|"warning"|string;
+  request_id?:string; order_id?:string; order_number?:string; customer?:string;
+  message:string; next_action:string;
+};
+type OrderToCashOrder = {
+  order_id:string; order_number:string; customer:string; order_status:string; payment_status:string; stage:string; next_action:string;
+  order_value_usd:number; estimated_cost_usd:number; estimated_gross_margin_usd:number; estimated_gross_margin_pct:number|null;
+  remaining_quantity:number; allocated_remaining_quantity:number; shipment_status:string; manifest_reference:string;
+  invoice_status:string; invoice_balance_usd:number;
+};
+type WholesaleIntelligence = {
+  summary:{
+    order_to_cash_exceptions:number; qa_hold_orders:number; customer_ar_pending_orders:number;
+    low_margin_orders:number; orders_waiting_manifest:number; late_fulfillment_orders:number; invoice_ar_handoff_orders:number;
+  };
+  order_to_cash_exceptions:OrderToCashException[];
+  order_to_cash:{orders:OrderToCashOrder[];stage_counts:Record<string,number>};
+};
 
 const TABS:[Tab,string][] = [
   ["overview","Overview"],
@@ -81,6 +101,13 @@ export function WholesaleOpsPage({onNavigate}:{onNavigate:(page:string)=>void}) 
     staleTime:15_000,
     refetchInterval:storefrontNeeded?30_000:false,
   });
+  const intelligence=useQuery({
+    queryKey:["wholesale-order-to-cash-intelligence"],
+    queryFn:({signal})=>apiGet<WholesaleIntelligence>("/api/v1/storefronts/agent/snapshot",signal),
+    enabled:tab==="overview",
+    staleTime:15_000,
+    refetchInterval:tab==="overview"?30_000:false,
+  });
   const pendingOrders=(storefront.data?.pending_orders??[]).filter(row=>row.status==="submitted");
   const pendingStorefront=pendingOrders.length;
   const openSales=(commercial.data?.orders??[]).filter(row=>row.order_type==="sales"&&!["fulfilled","cancelled"].includes(row.status)).length;
@@ -92,7 +119,7 @@ export function WholesaleOpsPage({onNavigate}:{onNavigate:(page:string)=>void}) 
     </div>
     <div className="view-tabs parity-tabs wholesale-tabs" role="tablist">{TABS.map(([key,label])=><button key={key} role="tab" aria-selected={tab===key} className={tab===key?"active":""} onClick={()=>setTab(key)}>{label}{key==="storefront"&&pendingStorefront>0?<span className="status-pill" style={{marginLeft:8}}>{pendingStorefront}</span>:null}</button>)}</div>
 
-    {tab==="overview"?<Overview inventory={inventory.data} commercial={commercial.data} pendingOrders={pendingOrders} openSales={openSales} storefrontLoading={storefront.isLoading} storefrontError={storefront.isError?storefront.error.message:""} onTab={setTab}/>:null}
+    {tab==="overview"?<Overview inventory={inventory.data} commercial={commercial.data} intelligence={intelligence.data} pendingOrders={pendingOrders} openSales={openSales} storefrontLoading={storefront.isLoading} storefrontError={storefront.isError?storefront.error.message:""} intelligenceLoading={intelligence.isLoading} intelligenceError={intelligence.isError?intelligence.error.message:""} onTab={setTab}/>:null}
     {tab==="inventory"?<WholesaleInventoryPanel query={inventory}/>:null}
     {tab==="orders"?<DeferredWorkspace><OrdersPage/></DeferredWorkspace>:null}
     {tab==="fulfillment"?<DeferredWorkspace><WarehousePickPackPage onNavigate={page=>page==="Orders"?setTab("orders"):onNavigate(page)}/></DeferredWorkspace>:null}
@@ -102,7 +129,7 @@ export function WholesaleOpsPage({onNavigate}:{onNavigate:(page:string)=>void}) 
   </div>;
 }
 
-function Overview({inventory,commercial,pendingOrders,openSales,storefrontLoading,storefrontError,onTab}:{inventory:WholesaleInventory|undefined;commercial:CommercialWorkspace|undefined;pendingOrders:PendingStorefrontOrder[];openSales:number;storefrontLoading:boolean;storefrontError:string;onTab:(tab:Tab)=>void}) {
+function Overview({inventory,commercial,intelligence,pendingOrders,openSales,storefrontLoading,storefrontError,intelligenceLoading,intelligenceError,onTab}:{inventory:WholesaleInventory|undefined;commercial:CommercialWorkspace|undefined;intelligence:WholesaleIntelligence|undefined;pendingOrders:PendingStorefrontOrder[];openSales:number;storefrontLoading:boolean;storefrontError:string;intelligenceLoading:boolean;intelligenceError:string;onTab:(tab:Tab)=>void}) {
   const pendingStorefront=pendingOrders.length;
   return <>
     <section className="metrics wholesale-metrics">
@@ -111,8 +138,11 @@ function Overview({inventory,commercial,pendingOrders,openSales,storefrontLoadin
       <Metric label="Open sales orders" value={openSales} meta={commercial?money(commercial.metrics.open_sales_value):"Commercial order value"}/>
       <Metric label="Storefront approvals" value={pendingStorefront} meta="Public requests awaiting review"/>
       <Metric label="Fill rate" value={commercial?`${commercial.metrics.fill_rate_pct.toFixed(1)}%`:"—"} meta={`${commercial?.metrics.overdue_orders??0} overdue orders`}/>
+      <Metric label="Order-to-cash exceptions" value={intelligence?.summary.order_to_cash_exceptions??"—"} meta={`${intelligence?.summary.orders_waiting_manifest??0} manifest · ${intelligence?.summary.invoice_ar_handoff_orders??0} invoice/A/R`}/>
     </section>
     <StorefrontApprovalQueue orders={pendingOrders} loading={storefrontLoading} error={storefrontError} onReview={()=>onTab("storefront")}/>
+    <OrderToCashPipeline snapshot={intelligence} loading={intelligenceLoading} error={intelligenceError} onTab={onTab}/>
+    <OrderToCashExceptions snapshot={intelligence} loading={intelligenceLoading} error={intelligenceError} onTab={onTab}/>
     <WholesaleRegulatoryHealth />
     <ManifestDraftControl />
     <section className="wholesale-action-grid">
@@ -137,6 +167,46 @@ function StorefrontApprovalQueue({orders,loading,error,onReview}:{orders:Pending
     {error?<div className="warning-banner">Storefront approval queue could not be loaded: {error}</div>:null}
     {!loading&&!error&&!orders.length?<div className="success-banner"><strong>No storefront orders are waiting for approval.</strong><br/><span>New customer submissions will appear here automatically.</span></div>:null}
     {orders.length?<div className="table-wrap"><table><thead><tr><th>Customer</th><th>Contact</th><th>License</th><th>Items</th><th>Estimated total</th><th>Submitted</th><th></th></tr></thead><tbody>{orders.slice(0,8).map(order=><tr key={order.id}><td><strong>{order.buyer_company||"Wholesale customer"}</strong><br/><small>{order.id.slice(0,8).toUpperCase()}</small></td><td>{order.buyer_contact||"—"}<br/><small>{order.buyer_email||"—"}</small></td><td>{order.buyer_license||"Not supplied"}</td><td>{order.lines?.length??0}</td><td><strong>{money(order.estimated_subtotal??0)}</strong></td><td>{dateTime(order.created_at)}</td><td><button className="secondary" type="button" onClick={onReview}>Review order</button></td></tr>)}</tbody></table></div>:null}
+  </section>;
+}
+
+function OrderToCashPipeline({snapshot,loading,error,onTab}:{snapshot:WholesaleIntelligence|undefined;loading:boolean;error:string;onTab:(tab:Tab)=>void}) {
+  const rows=snapshot?.order_to_cash?.orders??[];
+  const target=(stage:string):Tab=>["confirmation_required","allocation_required"].includes(stage)?"orders":["invoice_required","invoice_send_required","ar_open","paid"].includes(stage)?"accounting":"fulfillment";
+  const stageLabel=(stage:string)=>({
+    confirmation_required:"Confirm order",allocation_required:"Allocate inventory",shipment_setup_required:"Create shipment",
+    pick_pack:"Pick / pack",manifest_required:"Manifest required",ready_to_ship:"Ready to ship",
+    fulfillment_in_progress:"Fulfillment in progress",fulfillment_reconciliation:"Reconcile fulfillment",
+    invoice_required:"Invoice required",invoice_send_required:"Send invoice",ar_open:"A/R open",paid:"Paid",
+  } as Record<string,string>)[stage]??stage.replaceAll("_"," ");
+  return <section className="inventory-panel">
+    <div className="page-heading" style={{marginBottom:12}}><div><div className="eyebrow">ORDER-TO-CASH PIPELINE</div><h2>Every open handoff in one sequence.</h2><p className="section-note">Derived from the canonical sales order, allocation, shipment, manifest, invoice, and payment records. Margin uses current product cost against the order price.</p></div></div>
+    {loading?<div className="state">Building order-to-cash pipeline…</div>:null}
+    {error?<div className="warning-banner">Order-to-cash pipeline could not be loaded: {error}</div>:null}
+    {!loading&&!error&&!rows.length?<div className="info-banner">No wholesale sales orders are available for the continuity pipeline.</div>:null}
+    {rows.length?<div className="table-wrap"><table><thead><tr><th>Order / Customer</th><th>Stage</th><th>Inventory handoff</th><th>Margin</th><th>Finance</th><th>Next action</th><th></th></tr></thead><tbody>{rows.slice(0,20).map(row=><tr key={row.order_id}><td><strong>{row.order_number}</strong><br/><small>{row.customer}</small></td><td><span className="status-pill">{stageLabel(row.stage)}</span><br/><small>{row.shipment_status?"Shipment: "+row.shipment_status.replaceAll("_"," "):"No shipment yet"}</small></td><td>{number(row.allocated_remaining_quantity)} allocated<br/><small>{number(row.remaining_quantity)} remaining{row.manifest_reference?" · "+row.manifest_reference:""}</small></td><td><strong>{row.estimated_gross_margin_pct==null?"—":row.estimated_gross_margin_pct.toFixed(1)+"%"}</strong><br/><small>{money(row.estimated_gross_margin_usd)} est. gross margin</small></td><td>{row.invoice_status?row.invoice_status.replaceAll("_"," "):"Not invoiced"}<br/><small>{row.invoice_balance_usd>0?money(row.invoice_balance_usd)+" open":row.payment_status.replaceAll("_"," ")}</small></td><td>{row.next_action}</td><td><button className="secondary" type="button" onClick={()=>onTab(target(row.stage))}>Open</button></td></tr>)}</tbody></table></div>:null}
+  </section>;
+}
+
+function OrderToCashExceptions({snapshot,loading,error,onTab}:{snapshot:WholesaleIntelligence|undefined;loading:boolean;error:string;onTab:(tab:Tab)=>void}) {
+  const rows=snapshot?.order_to_cash_exceptions??[];
+  const target=(kind:string):Tab=>kind==="customer_ar_pending_order"||kind==="invoice_ar_handoff"?"accounting":kind==="low_margin_order"?"orders":"fulfillment";
+  const label=(kind:string)=>({
+    qa_hold:"QA hold",
+    customer_ar_pending_order:"Customer A/R",
+    low_margin_order:"Low margin",
+    waiting_manifest:"Manifest",
+    late_fulfillment:"Late fulfillment",
+    invoice_ar_handoff:"Invoice / A/R",
+  } as Record<string,string>)[kind]??kind.replaceAll("_"," ");
+  return <section className="inventory-panel">
+    <div className="page-heading" style={{marginBottom:12}}>
+      <div><div className="eyebrow">DOOBIE CONTINUITY</div><h2>Order-to-cash exceptions</h2><p className="section-note">One view across approval, inventory, fulfillment, manifest readiness, invoicing, and A/R. These are deterministic operational checks, not model guesses.</p></div>
+    </div>
+    {loading?<div className="state">Checking order-to-cash continuity…</div>:null}
+    {error?<div className="warning-banner">Order-to-cash continuity could not be loaded: {error}</div>:null}
+    {!loading&&!error&&!rows.length?<div className="success-banner"><strong>No order-to-cash exceptions need attention.</strong><br/><span>Current sales orders are clear across the continuity checks.</span></div>:null}
+    {rows.length?<div className="table-wrap"><table><thead><tr><th>Priority</th><th>Order / Customer</th><th>Exception</th><th>Next action</th><th></th></tr></thead><tbody>{rows.slice(0,12).map((row,index)=><tr key={`${row.kind}-${row.order_id||row.request_id||index}`}><td><span className={row.severity==="high"?"warning-text":"status-pill"}>{row.severity==="high"?"High":"Review"}</span></td><td><strong>{row.order_number||"Pending request"}</strong><br/><small>{row.customer||"Wholesale customer"}</small></td><td><strong>{label(row.kind)}</strong><br/><small>{row.message}</small></td><td>{row.next_action}</td><td><button className="secondary" type="button" onClick={()=>onTab(target(row.kind))}>Open</button></td></tr>)}</tbody></table></div>:null}
   </section>;
 }
 

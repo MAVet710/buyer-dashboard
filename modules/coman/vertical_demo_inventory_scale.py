@@ -43,6 +43,7 @@ from modules.coman.vertical_demo_ma_coas import (
 )
 from modules.coman import ComanRepository
 from modules.commercial.repository import CommercialRepository, OPEN_ORDER_STATUSES
+from modules.commercial_finance.service import CommercialFinanceService
 from modules.cultivation.service import ACTIVE_PLANT_PHASES, CultivationService
 from modules.extraction import ExtractionRepository
 from modules.inventory_quality import LotQualityService
@@ -288,6 +289,7 @@ def _seed_commercial_orders(
     actor: str,
 ) -> dict[str, int]:
     commercial = CommercialRepository(engine)
+    finance = CommercialFinanceService(engine)
     customers = [
         _ensure_partner(engine, commercial, organization_id, name="Harbor Wellness", partner_type="customer", actor=actor, license_or_registration="MR-DEMO-001"),
         _ensure_partner(engine, commercial, organization_id, name="Cape Select", partner_type="customer", actor=actor, license_or_registration="MR-DEMO-002"),
@@ -410,31 +412,46 @@ def _seed_commercial_orders(
                 )
             if so_index <= 9:
                 statuses["allocated"] += 1
-            elif so_index <= 11:
-                for line, lot in list(zip(order_lines, selected))[:2]:
-                    commercial.post_fulfillment(
-                        organization_id=organization_id,
-                        facility_id=facility_id,
-                        order_line_id=line.id,
-                        lot_id=lot.id,
-                        quantity=1,
-                        actor=actor,
-                        reference=f"DEV-SHIP-{generation}-{so_index:03d}",
-                    )
-                statuses["partially_fulfilled"] += 1
             else:
-                for line, lot in zip(order_lines, selected):
-                    commercial.post_fulfillment(
-                        organization_id=organization_id,
-                        facility_id=facility_id,
-                        order_line_id=line.id,
-                        lot_id=lot.id,
-                        quantity=1,
-                        actor=actor,
-                        reference=f"DEV-SHIP-{generation}-{so_index:03d}",
-                    )
-                commercial.set_payment_status(order.id, organization_id=organization_id, facility_id=facility_id, payment_status="paid", actor=actor)
-                statuses["fulfilled"] += 1
+                shipment = finance.create_shipment(
+                    organization_id=organization_id,
+                    facility_id=facility_id,
+                    order_id=order.id,
+                    shipment_number=f"DEV-SHIP-{generation}-{so_index:03d}",
+                    actor=actor,
+                    manifest_reference=f"DEV-MANIFEST-{generation}-{so_index:03d}",
+                )
+                finance.update_shipment_status(
+                    organization_id=organization_id,
+                    facility_id=facility_id,
+                    shipment_id=shipment.id,
+                    status="manifested",
+                )
+                if so_index <= 11:
+                    for line, lot in list(zip(order_lines, selected))[:2]:
+                        commercial.post_fulfillment(
+                            organization_id=organization_id,
+                            facility_id=facility_id,
+                            order_line_id=line.id,
+                            lot_id=lot.id,
+                            quantity=1,
+                            actor=actor,
+                            reference=f"DEV-SHIP-{generation}-{so_index:03d}",
+                        )
+                    statuses["partially_fulfilled"] += 1
+                else:
+                    for line, lot in zip(order_lines, selected):
+                        commercial.post_fulfillment(
+                            organization_id=organization_id,
+                            facility_id=facility_id,
+                            order_line_id=line.id,
+                            lot_id=lot.id,
+                            quantity=1,
+                            actor=actor,
+                            reference=f"DEV-SHIP-{generation}-{so_index:03d}",
+                        )
+                    commercial.set_payment_status(order.id, organization_id=organization_id, facility_id=facility_id, payment_status="paid", actor=actor)
+                    statuses["fulfilled"] += 1
         sales_orders += 1
     return {"purchase_orders": purchase_orders, "sales_orders": sales_orders, **dict(statuses)}
 
