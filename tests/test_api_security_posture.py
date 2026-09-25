@@ -15,6 +15,8 @@ from backend.app.main import app, settings
 
 PERMITTED_PUBLIC_API_ROUTES = {
     # Public marketing intake only. Administration remains context/DEV protected.
+    # Readiness exposes only process/schema status, never tenant or facility data.
+    ("GET", f"{settings.api_prefix}/health/ready"),
     ("POST", f"{settings.api_prefix}/advisory/leads"),
     ("POST", f"{settings.api_prefix}/advisory/score"),
     ("POST", f"{settings.api_prefix}/advisory/events"),
