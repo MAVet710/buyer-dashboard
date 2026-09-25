@@ -81,7 +81,7 @@ export function configureSeo(marketing: boolean): void {
   for (const [name, content] of Object.entries({
     "og:type": page.kind === "article" ? "article" : "website", "og:site_name": "DoobieLogic", "og:title": page.title,
     "og:description": page.description, "og:url": page.canonical, "og:image": SOCIAL_IMAGE,
-    "og:image:type": "image/webp", "og:image:width": "512", "og:image:height": "512", "og:image:alt": "DoobieLogic brand mark",
+    "og:image:type": "image/webp", "og:image:width": "256", "og:image:height": "256", "og:image:alt": "DoobieLogic brand mark",
   })) upsertMeta(name, content, "property");
   for (const [name, content] of Object.entries({
     "twitter:card": "summary", "twitter:title": page.title,
