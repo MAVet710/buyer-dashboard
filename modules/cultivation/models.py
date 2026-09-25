@@ -49,6 +49,7 @@ class CultivationPlantEvent(Base):
 class CultivationRoom(TimestampMixin, Base):
     __tablename__ = "cultivation_rooms"
     __table_args__ = (
+        UniqueConstraint("organization_id", "facility_id", "id", name="uq_cultivation_room_scope"),
         UniqueConstraint("facility_id", "room_code", name="uq_cultivation_room_facility_code"),
         CheckConstraint("plant_capacity >= 0", name="ck_cultivation_room_capacity"),
         CheckConstraint("square_feet >= 0", name="ck_cultivation_room_square_feet"),

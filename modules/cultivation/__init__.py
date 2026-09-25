@@ -4,12 +4,15 @@ from .batch_models import CultivationPlantGroup, CultivationPlantGroupMember, Cu
 from .models import CultivationPlant, CultivationPlantEvent
 from .service import CultivationService
 from .batches import CultivationBatchService
+from .telemetry_models import EnvironmentalObservation, EnvironmentalTarget
 
 # Import for its SQLAlchemy before_flush registration. Harvest completion must
 # always fail closed when measured material has not been fully reconciled.
 from . import closeout_guard as _closeout_guard  # noqa: F401,E402
 
 __all__ = [
+    "EnvironmentalObservation",
+    "EnvironmentalTarget",
     "CultivationBatchService",
     "CultivationPlant",
     "CultivationPlantEvent",

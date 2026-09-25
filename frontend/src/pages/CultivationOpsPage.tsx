@@ -1,5 +1,6 @@
 import { PlantInventory } from "../components/PlantInventory";
 import { PostHarvestHandoffSummary } from "../components/PostHarvestHandoffSummary";
+import { CultivationEnvironmentPanel } from "../components/CultivationEnvironmentPanel";
 
 export function CultivationOpsPage({ onNavigate, initialPlantId = "" }: { initialPlantId?: string; onNavigate: (page: string) => void }) {
   return <div className="page cultivation-ops-page">
@@ -13,5 +14,6 @@ export function CultivationOpsPage({ onNavigate, initialPlantId = "" }: { initia
     </div>
     <PostHarvestHandoffSummary onOpen={() => onNavigate("Post-Harvest")} />
     <PlantInventory initialPlantId={initialPlantId} />
+    <CultivationEnvironmentPanel />
   </div>;
 }
