@@ -23,7 +23,7 @@ for (const path of Object.keys(advisoryRoutes).filter(path => path.startsWith('/
     `<meta name="description" content="${escape(page.description)}">`,
     `<meta name="robots" content="${escape(page.robots)}">`,
     `<link rel="canonical" href="${page.canonical}">`,
-    ...Object.entries({'og:type':page.kind==='article'?'article':'website','og:title':page.title,'og:description':page.description,'og:url':page.canonical,'og:site_name':'DoobieLogic','og:image':'https://doobielogic.io/marketing/doobielogic-brand.png'}).map(([name,value])=>`<meta property="${name}" content="${escape(value)}">`),
+    ...Object.entries({'og:type':page.kind==='article'?'article':'website','og:title':page.title,'og:description':page.description,'og:url':page.canonical,'og:site_name':'DoobieLogic','og:image':'https://doobielogic.io/doobielogic-logo.webp'}).map(([name,value])=>`<meta property="${name}" content="${escape(value)}">`),
     `<meta name="twitter:card" content="summary">`,
     `<script id="doobielogic-software-schema" type="application/ld+json">${JSON.stringify(marketingStructuredData(path)).replaceAll('<','\\u003c')}</script>`,
   ];
