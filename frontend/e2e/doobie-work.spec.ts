@@ -75,3 +75,21 @@ test("read-only role can inspect without mutation controls", async ({ page }) =>
   await expect(page.getByRole("button", { name: "Generate due work" })).toHaveCount(0);
   expect(writes).toHaveLength(0);
 });
+
+test("Home inbox opens the exact work item and survives reload", async ({ page }) => {
+  const writes = await install(page);
+  await page.route("**/api/v1/home/inbox", route => route.fulfill({ json: {
+    items: [{ id: "work:work-1", severity: "high", area: "Work", title: "Inspect vault count",
+      detail: "Assigned work needs attention.", workspace: "Work Queue", route: "/work?item=work-1",
+      entity_id: "work-1", action_label: "Inspect work", evidence: [] }],
+    summary: { critical: 0, high: 1, total: 1 },
+  } }));
+  await page.goto("/home");
+  await page.getByRole("button", { name: "Inspect work", exact: true }).click();
+  await expect(page).toHaveURL(/\/work\?item=work-1$/);
+  const detail = page.getByRole("region", { name: "Work details" });
+  await expect(detail.getByRole("heading", { name: "Inspect vault count" })).toBeVisible();
+  await page.reload();
+  await expect(detail.getByRole("heading", { name: "Inspect vault count" })).toBeVisible();
+  expect(writes).toHaveLength(0);
+});

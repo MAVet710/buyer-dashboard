@@ -49,3 +49,20 @@ This implementation is a local candidate only. Integration must validate the mig
 Local validation passed: 97 focused and broader Python tests, 110 frontend unit/contract tests, frontend lint, production build, and three synthetic Playwright checks covering lifecycle, mobile navigation/layout and read-only behavior. Alembic reports the single head `0080_doobie_work`. Schema checks include SQLite upgrade/model parity and PostgreSQL DDL generation; no production database migration was executed.
 
 Run the browser checks against an isolated development server on `127.0.0.1:5179` with `pnpm exec playwright test --config playwright.work.config.ts`. They intercept API traffic with synthetic fixtures and do not authorize provider or production mutations.
+
+## Accepted-candidate integration (2026-09-25)
+
+Rebased the completed Work commit `28d0b2b5898226b3c7d3a70a5e0ff229ab118d47` onto the accepted no-schema candidate `6b874bf3bbce82815dc3116e6457b347a51ff0e4`. Git reported no textual conflicts. Reviewed App, AppShell, HomePage, workspace routes, API helpers, Home inbox and backend router registration. Exact global-search routes, Cultivation Wholesale navigation, Buyer Today/Decide/Act/Analyze and expanded security controls remain intact. No stale source-contract markers required changes.
+
+Retained the existing Work role gate. Work's mutation controls and assignee eligibility share that role policy; adding override-aware permissions consistently would require more than a minimal registry entry. No existing role behavior changed. The migration remains the single Alembic head `0080_doobie_work`, with `down_revision = "0079_security_observation"`.
+
+Integration validation:
+
+- 114 focused Python tests passed across Doobie Work, UX routing, Home/shell parity, enterprise permissions and security scaffold.
+- 66 broader Python tests passed across Buyer data mode, parity restoration, purchase-order/label/wholesale continuity, API security and security observation.
+- 11 additional web parity, workspace navigation and window-layering tests passed.
+- All 124 frontend unit tests passed; frontend lint and production build passed.
+- Four synthetic Playwright checks passed: lifecycle, mobile layout/navigation, read-only controls, and Home inbox exact-item navigation with reload. The last check was added during integration.
+- Optional legacy suites `test_ux_cohesion_sandbox_parity.py`, `test_buyer_intelligence_output_contract.py` and `test_workspace_shell.py` could not collect because Streamlit is not installed in either local Python runtime. Assertions were not changed or skipped inside those suites.
+
+Status: `CODE_READY` for this local integration scope. No push, merge, PR, deployment, hosting change or database migration was performed. PostgreSQL migration execution and authenticated public acceptance remain release gates outside this task's explicit no-deploy scope.
