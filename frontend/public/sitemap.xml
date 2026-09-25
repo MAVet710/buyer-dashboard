@@ -43,6 +43,11 @@
   <url><loc>https://doobielogic.io/help/package-studio</loc></url>
   <url><loc>https://doobielogic.io/help/production</loc></url>
   <url><loc>https://doobielogic.io/help/production/calendar</loc></url>
+  <url><loc>https://doobielogic.io/help/production/inventory</loc></url>
+  <url><loc>https://doobielogic.io/help/production/inventory-audits</loc></url>
+  <url><loc>https://doobielogic.io/help/production/inventory/transfers</loc></url>
+  <url><loc>https://doobielogic.io/help/production/package-360</loc></url>
+  <url><loc>https://doobielogic.io/help/production/products</loc></url>
   <url><loc>https://doobielogic.io/help/production/run-360</loc></url>
   <url><loc>https://doobielogic.io/help/reports/executive</loc></url>
   <url><loc>https://doobielogic.io/help/reports/sales-category-trends</loc></url>
@@ -52,7 +57,12 @@
   <url><loc>https://doobielogic.io/help/settings/location</loc></url>
   <url><loc>https://doobielogic.io/help/white-label-repack</loc></url>
   <url><loc>https://doobielogic.io/help/wholesale</loc></url>
+  <url><loc>https://doobielogic.io/help/wholesale/accounting</loc></url>
+  <url><loc>https://doobielogic.io/help/wholesale/customers</loc></url>
+  <url><loc>https://doobielogic.io/help/wholesale/inventory</loc></url>
   <url><loc>https://doobielogic.io/help/wholesale/orders</loc></url>
+  <url><loc>https://doobielogic.io/help/wholesale/pipeline</loc></url>
+  <url><loc>https://doobielogic.io/help/wholesale/storefront</loc></url>
   <url><loc>https://doobielogic.io/help/wholesale/warehouse-pick-pack</loc></url>
   <url><loc>https://doobielogic.io/resources</loc></url>
   <url><loc>https://doobielogic.io/resources/days-on-hand-for-cannabis-inventory</loc></url>

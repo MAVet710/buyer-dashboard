@@ -310,6 +310,80 @@ export const helpArticles: HelpArticle[] = [
     {title:"Calculate equivalency",steps:["Open MA Flower Equivalency.","Choose the applicable product form.","Enter the required package and potency values.","Review the calculated equivalency.","Confirm the result against your current compliance procedure before using it operationally."]}
   ],["/help/compliance","/help/compliance/qa"]),
 
+
+  article("/help/production/inventory","production","Production Inventory","Review materials and packages available to production, including commitments, rooms, holds, and usable quantity.","Production Ops → Inventory → Materials","production",[
+    "Production inventory is the same durable inventory system used by downstream runs and Package Studio.",
+    "Available quantity accounts for active reservations and commitments."
+  ],[
+    {title:"Review materials",steps:["Switch to Production Ops.","Open Inventory → Materials.","Filter by room, material type, status, or product.","Review on-hand, available, reserved, and hold context before assigning material to a run."]},
+    {title:"Take action",body:"Use package-level actions for moves, holds, releases, adjustments, transfers, labels, audits, and Package Studio when your permissions allow them."}
+  ],["/help/production/inventory/transfers","/help/production/products","/help/production/run-360"]),
+
+  article("/help/production/inventory/transfers","production","Production Inventory Transfers","Move production packages between licensed facilities while preserving package identity, quantities, manifest context, and receiving history.","Production Ops → Inventory → Transfers","production",[
+    "Transfers operate on physical packages, not product summary rows.",
+    "Held, quarantined, failed, or unavailable packages must be resolved before transfer."
+  ],[
+    {title:"Start a transfer",steps:["Open Production Ops → Inventory → Transfers.","Select the source packages.","Choose the destination facility and review quantities.","Enter required manifest or transport context.","Review eligibility before posting or dispatching the transfer."]},
+    {title:"Receive and reconcile",steps:["Open the transfer at the destination.","Verify package identity and quantity against the physical shipment.","Receive through the supported workflow.","Resolve discrepancies before closing the transfer."]}
+  ],["/help/production/inventory","/help/inventory/transfers","/help/compliance/traceability"]),
+
+  article("/help/production/package-360","production","Production Package 360","Inspect a production package across balance, location, reservations, source history, status, and downstream use.","Production Ops → Inventory → Package 360","production",[
+    "Open Package 360 when the question is about one physical package or lot.",
+    "Use Product 360 or Product Master when the question is about a reusable product identity."
+  ],[
+    {title:"Open a package",steps:["Open Production Ops → Inventory → Package 360.","Search or scan the package identifier.","Review quantity, location, status, commitments, and source context.","Follow lineage or related run links when investigating where the material came from or went."]}
+  ],["/help/production/inventory","/help/package-studio","/help/inventory/package-360"]),
+
+  article("/help/production/products","production","Production Products","Maintain the product master used by production planning, package outputs, BOM context, reporting, and downstream inventory.","Production Ops → Inventory → Products","production",[
+    "Product records describe what the material is. Package records describe a specific physical quantity of it.",
+    "Naming and units should stay consistent because planning and package workflows reuse these identities."
+  ],[
+    {title:"Review the product master",steps:["Open Production Ops → Inventory → Products.","Find the product by name or SKU.","Review type, unit, active status, and other production fields.","Update only supported master-data fields and verify downstream workflows after the change."]}
+  ],["/help/production/inventory","/help/package-studio","/help/production/run-360"]),
+
+  article("/help/production/inventory-audits","production","Production Inventory Audits","Count production materials and packages in resumable audit sessions without losing the expected-versus-counted trail.","Production Ops → Inventory → Inventory Audits","production",[
+    "Audit sessions can pause, resume, recount, and reconcile.",
+    "Define the facility and count scope before scanning so the expected population is clear."
+  ],[
+    {title:"Run the count",steps:["Open Production Ops → Inventory → Inventory Audits.","Start or resume the audit for the intended scope.","Scan or select each package and record the physical count.","Pause safely when the floor work stops.","Recount discrepancies, review evidence, and complete only after reconciliation."]}
+  ],["/help/inventory/audits","/help/production/inventory","/help/compliance/traceability"]),
+
+  article("/help/wholesale/inventory","wholesale","Wholesale Inventory","Review released, sellable lots and understand why inventory is available, reserved, or blocked from the commercial catalog.","Wholesale → Inventory","wholesale",[
+    "Wholesale eligibility requires released inventory, passed COA context, and positive uncommitted quantity.",
+    "Blocked lots stay visible for investigation without silently becoming sellable."
+  ],[
+    {title:"Review sellable inventory",steps:["Open Wholesale → Inventory.","Review available and reserved quantity by lot.","Inspect COA/release state and blocked reasons.","Open the source package or production context when a lot needs investigation."]}
+  ],["/help/wholesale","/help/wholesale/orders","/help/compliance/traceability"]),
+
+  article("/help/wholesale/customers","wholesale","Wholesale Customers","Maintain retailer and partner account context, licensing, contacts, payment terms, and the relationship behind commercial orders.","Wholesale → Customers","wholesale",[
+    "Customer records should represent the licensed account, not just an individual contact.",
+    "Keep license and payment context current before relying on it for order-to-cash decisions."
+  ],[
+    {title:"Work a customer account",steps:["Open Wholesale → Customers.","Search for the account.","Review license, contacts, terms, activity, and linked commercial history.","Update supported customer fields or open related opportunities/orders from the account context."]}
+  ],["/help/wholesale/pipeline","/help/wholesale/orders","/help/wholesale/accounting"]),
+
+  article("/help/wholesale/pipeline","wholesale","Wholesale Pipeline","Track opportunities and commercial follow-up before an opportunity becomes a confirmed sales order.","Wholesale → Pipeline","wholesale",[
+    "Pipeline work belongs before order confirmation; confirmed demand moves into the canonical sales-order workflow.",
+    "Keep expected value, stage, owner, and next action current so the pipeline remains useful."
+  ],[
+    {title:"Review the pipeline",steps:["Open Wholesale → Pipeline.","Review opportunities by stage and next action.","Open the customer context before changing an opportunity.","Advance or close the opportunity based on actual commercial progress.","Convert approved demand through the supported quote/order workflow rather than duplicating it manually."]}
+  ],["/help/wholesale/customers","/help/wholesale/orders"]),
+
+  article("/help/wholesale/accounting","wholesale","Wholesale Accounting","Review invoices, open balances, A/R aging, payment status, and accounting synchronization from the wholesale workflow.","Wholesale → Accounting","wholesale",[
+    "Accounting follows the canonical sales order and fulfillment records.",
+    "A saved accounting connection is not treated as healthy until provider validation succeeds."
+  ],[
+    {title:"Review finance handoffs",steps:["Open Wholesale → Accounting.","Review invoices and open balances.","Prioritize overdue or exception accounts.","Record or synchronize payment information through the supported workflow.","Return to the order-to-cash view to verify the exception clears."]}
+  ],["/help/wholesale/orders","/help/wholesale/customers","/help/settings/integrations"]),
+
+  article("/help/wholesale/storefront","wholesale","Wholesale Storefront","Publish a branded wholesale catalog, control eligible listings, and review customer order requests before they become commercial sales orders.","Wholesale → Storefront","wholesale",[
+    "Only eligible inventory should be published to the storefront.",
+    "Customer submissions require review before they become canonical sales orders or reserve inventory."
+  ],[
+    {title:"Manage the catalog",steps:["Open Wholesale → Storefront.","Review storefront identity and publication status.","Choose eligible products or sales units for the catalog.","Preview the customer-facing storefront before publishing changes."]},
+    {title:"Review incoming requests",steps:["Open pending storefront orders.","Verify customer and license context.","Review requested items and availability.","Approve valid requests into the commercial order workflow or resolve the request without creating duplicate demand."]}
+  ],["/help/wholesale","/help/wholesale/orders","/help/wholesale/inventory"]),
+
   article("/help/reports/sales-category-trends","reports","Sales & Category Trends","Review retail sales mix, velocity, category performance, and changing demand from the active data source.","Reports → Sales & Category Trends","buying",[
     "Trend views depend on the freshness and completeness of the active retail source."
   ],[
@@ -369,8 +443,8 @@ export const helpCategories: HelpCategory[] = [
   {id:"buying",title:"Buying",description:"Recommendations, purchase orders, budget, delivery performance, and planning policy.",articles:["/help/buying","/help/buying/recommendations","/help/buying/purchase-orders","/help/buying/budget","/help/buying/delivery-performance","/help/buying/planning-settings"]},
   {id:"inventory",title:"Inventory",description:"Receiving, transfers, Product 360, Package 360, audits, aging, and catalog administration.",articles:["/help/inventory","/help/inventory/receiving","/help/inventory/transfers","/help/inventory/product-360","/help/inventory/package-360","/help/inventory/audits","/help/inventory/slow-movers","/help/inventory/catalog-admin"]},
   {id:"cultivation",title:"Cultivation",description:"Grow operations and the harvest-to-post-harvest handoff.",articles:["/help/cultivation","/help/cultivation/post-harvest"]},
-  {id:"production",title:"Production & Extraction",description:"Production planning, Run 360, extraction, repack, and package creation.",articles:["/help/production","/help/production/calendar","/help/production/run-360","/help/extraction","/help/white-label-repack","/help/package-studio"]},
-  {id:"wholesale",title:"Wholesale & Warehouse",description:"Sellable inventory, orders, fulfillment, storefront operations, and pick/pack.",articles:["/help/wholesale","/help/wholesale/orders","/help/wholesale/warehouse-pick-pack"]},
+  {id:"production",title:"Production & Extraction",description:"Production inventory, planning, Run 360, extraction, repack, and package creation.",articles:["/help/production","/help/production/inventory","/help/production/inventory/transfers","/help/production/package-360","/help/production/products","/help/production/inventory-audits","/help/production/calendar","/help/production/run-360","/help/extraction","/help/white-label-repack","/help/package-studio"]},
+  {id:"wholesale",title:"Wholesale & Warehouse",description:"Sellable inventory, customers, pipeline, orders, fulfillment, accounting, storefront operations, and pick/pack.",articles:["/help/wholesale","/help/wholesale/inventory","/help/wholesale/orders","/help/wholesale/warehouse-pick-pack","/help/wholesale/customers","/help/wholesale/pipeline","/help/wholesale/accounting","/help/wholesale/storefront"]},
   {id:"compliance",title:"Compliance",description:"Traceability, governed state actions, labels, Q&A, naming, and Massachusetts equivalency.",articles:["/help/compliance","/help/compliance/qa","/help/compliance/traceability","/help/compliance/state-actions","/help/compliance/label-studio","/help/compliance/product-name-mapper","/help/compliance/ma-flower-equivalency"]},
   {id:"reports",title:"Reports",description:"Sales and category trends plus executive reporting.",articles:["/help/reports/sales-category-trends","/help/reports/executive"]},
   {id:"settings",title:"Settings & Integrations",description:"Locations, data imports, users, permissions, Metrc, accounting, and provider connections.",articles:["/help/settings/location","/help/settings/imports-data","/help/settings/admin","/help/settings/integrations"]},
