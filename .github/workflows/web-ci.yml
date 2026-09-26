@@ -58,6 +58,33 @@ jobs:
             exit 1
           fi
           SECURITY_BROWSER_BASE_URL=http://127.0.0.1:4173 pnpm exec playwright test --config=playwright.config.ts e2e/parity-browser.spec.ts e2e/inventory-product-actions-mobile.spec.ts e2e/label-studio-inventory-autofill.spec.ts e2e/label-studio-data-integrity.spec.ts e2e/label-studio-production-workflow.spec.ts e2e/security-center.spec.ts
+      - name: Cultivation intelligence and opaque popup browser acceptance
+        run: |
+          set -euo pipefail
+          pnpm exec vite --config e2e/fixtures/cultivation-intelligence.config.ts --host 127.0.0.1 --port 4196 --strictPort > /tmp/cultivation-fixture.log 2>&1 &
+          CULTIVATION_PID=$!
+          pnpm exec vite --config e2e/fixtures/popup-readability.config.ts --host 127.0.0.1 --port 4197 --strictPort > /tmp/popup-fixture.log 2>&1 &
+          POPUP_PID=$!
+          trap 'kill "$CULTIVATION_PID" "$POPUP_PID" 2>/dev/null || true' EXIT
+          for port in 4196 4197; do
+            READY=0
+            for attempt in $(seq 1 45); do
+              if curl -fsS "http://127.0.0.1:$port/" > /dev/null; then READY=1; break; fi
+              sleep 1
+            done
+            if [ "$READY" -ne 1 ]; then cat /tmp/cultivation-fixture.log /tmp/popup-fixture.log; exit 1; fi
+          done
+          pnpm exec playwright test --config=playwright.config.ts e2e/cultivation-intelligence.spec.ts e2e/popup-readability.spec.ts
+      - name: Upload cultivation and popup acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cultivation-popup-browser-evidence
+          path: |
+            frontend/tmp/popup-readability
+            frontend/test-results/browser-parity
+          retention-days: 7
+          if-no-files-found: warn
       - name: Upload browser parity evidence
         if: always()
         uses: actions/upload-artifact@v4

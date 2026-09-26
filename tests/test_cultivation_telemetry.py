@@ -538,10 +538,10 @@ def test_exception_work_lookup_adds_one_bounded_query(setup):
     assert " IN " in statements[-1].upper()
 
 
-def test_final_migration_chain_is_single_0085_head():
+def test_final_migration_chain_is_single_0086_head():
     from alembic.config import Config
     from alembic.script import ScriptDirectory
     scripts = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert scripts.get_heads() == ["0085_cultivation_telemetry"]
-    revision = scripts.get_revision("0085_cultivation_telemetry")
-    assert revision.down_revision == "0084_wholesale_logistics"
+    assert scripts.get_heads() == ["0086_cultivation_intelligence"]
+    revision = scripts.get_revision("0086_cultivation_intelligence")
+    assert revision.down_revision == "0085_cultivation_telemetry"

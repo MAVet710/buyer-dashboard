@@ -1,0 +1,13 @@
+.cultivation-intelligence { min-width: 0; overflow-wrap: anywhere; }
+.cultivation-intelligence .ci-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 12px; }
+.cultivation-intelligence .ci-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 12px 0; }
+.cultivation-intelligence fieldset { min-width: 0; border: 0; padding: 0; margin: 12px 0; }
+.cultivation-intelligence input, .cultivation-intelligence select, .cultivation-intelligence textarea { max-width: 100%; min-width: 0; }
+.cultivation-intelligence textarea { width: 100%; }
+.cultivation-intelligence details { margin: 14px 0; }
+.cultivation-intelligence summary { cursor: pointer; font-weight: 600; }
+.cultivation-intelligence .ci-stage { border: 1px solid var(--border, #d8ddd9); border-radius: 8px; padding: 12px; margin: 12px 0; }
+.cultivation-intelligence .ci-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.cultivation-intelligence .ci-reading { min-width: 0; border: 1px solid var(--border, #d8ddd9); border-radius: 8px; padding: 12px; }
+.cultivation-intelligence .ci-reading h6 { font-size: 1rem; margin: 0; text-transform: capitalize; }
+.cultivation-intelligence .ci-reading-value { font-size: 1.4rem; font-weight: 600; margin: 8px 0; }

@@ -1,7 +1,7 @@
 """Provider-neutral environmental evidence, separate from inventory balances."""
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, Float, ForeignKeyConstraint, Index, Integer, String, UniqueConstraint
+from sqlalchemy import CheckConstraint, DateTime, Float, ForeignKey, ForeignKeyConstraint, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from modules.coman.models import Base, new_id, utc_now
@@ -24,9 +24,13 @@ class EnvironmentalObservation(Base):
     source: Mapped[str] = mapped_column(String(80), nullable=False)
     event_id: Mapped[str] = mapped_column(String(120), nullable=False)
     device_id: Mapped[str] = mapped_column(String(120), nullable=False, default="")
-    metric: Mapped[str] = mapped_column(String(40), nullable=False)
+    metric: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_metric: Mapped[str | None] = mapped_column(String(120), nullable=True)
     value: Mapped[float] = mapped_column(Float, nullable=False)
-    unit: Mapped[str] = mapped_column(String(16), nullable=False)
+    unit: Mapped[str] = mapped_column(String(32), nullable=False)
+    original_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    original_unit: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    raw_reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
     quality: Mapped[str] = mapped_column(String(16), nullable=False)
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
@@ -45,7 +49,7 @@ class EnvironmentalTarget(Base):
     organization_id: Mapped[str] = mapped_column(String(36), nullable=False)
     facility_id: Mapped[str] = mapped_column(String(36), nullable=False)
     room_id: Mapped[str] = mapped_column(String(36), nullable=False)
-    metric: Mapped[str] = mapped_column(String(40), nullable=False)
+    metric: Mapped[str] = mapped_column(String(64), nullable=False)
     minimum: Mapped[float | None] = mapped_column(Float, nullable=True)
     maximum: Mapped[float | None] = mapped_column(Float, nullable=True)
     stale_minutes: Mapped[int] = mapped_column(Integer, nullable=False)

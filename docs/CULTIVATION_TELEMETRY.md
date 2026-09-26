@@ -169,3 +169,11 @@ outside the Windows filesystem sandbox to resolve parent directories. No securit
 settings or hosting configuration were changed. Release status is `CODE_READY` for
 this local pre-rebase hardening; generalized permission and canonical Work integration,
 final migration-chain acceptance, and PC/public acceptance remain final-release work.
+
+## 0086 compatibility and local evidence extension
+
+The controlled registry is `modules/cultivation/metrics.py`. Canonical `temperature` and `co2` keys remain unchanged; aliases normalize once. Private immutable source evidence survives Pydantic model/HTTP construction. Canonically equivalent manual retries remain duplicates and never rewrite first source evidence. Existing 0085 originals remain null with explicit `unavailable_historical` provenance. Boolean measurements, nonbinary states, nonfinite numbers and ambiguous gallons/gpm are rejected. Explicit US gallons are supported; volume additionally accepts explicit imperial gallons.
+
+Default empty snapshots still return the original eight UI metrics. Additional metrics appear only when observed/configured. Unknown historical keys do not index an assumed UI registry. Irrigation durations use `duration_total`, events `event_count`, volumes `volume_total`; continuous legacy values remain sample averages rather than duration claims.
+
+The new `/api/v1/cultivation-intelligence` API supports explicit bounded JSON/CSV file imports through the local edge store. This supersedes the earlier deferred-import note: provider raw evidence does not enter the central manual ledger. The legacy ingest service rejects adapter-owned enrichment instead of allowing tenant/reference injection. Growlink exports/fixtures are read-only and never establish live health; live vendor transport remains blocked. See `CULTIVATION_INTELLIGENCE_API.md`, `CULTIVATION_INTELLIGENCE_ARCHITECTURE.md` and `CULTIVATION_EDGE_CONTRACT.md` for current behavior and remaining gates.

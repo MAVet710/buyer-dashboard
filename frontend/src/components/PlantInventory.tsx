@@ -1,3 +1,4 @@
+import { PlantExposure } from "./PlantExposure";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ChangeEvent } from "react";
 import { apiGet, apiPost } from "../lib/api";
@@ -85,6 +86,7 @@ function PlantDetail({ plant, canWrite, onSaved }: { plant: CultivationPlant; ca
   const lineage = useQuery({ queryKey:["plant-lineage",plant.id], queryFn:({signal})=>apiGet<PlantLineage>(`/api/v1/inventory/production/plants/${plant.id}/lineage`,signal) });
   const mutation = useMutation({ mutationFn: () => apiPost<CultivationPlant>(`/api/v1/inventory/production/plants/${plant.id}/transition`, { phase: target || plant.phase, room_code: room, reason, notes: "" }), onSuccess: onSaved });
   return <div className="plant-360-workspace">
+    <PlantExposure key={plant.id} plantId={plant.id} />
     <section className="inventory-panel"><div className="section-heading"><div><div className="eyebrow">Genetics & source</div><h3>Plant lineage</h3></div></div>{lineage.isLoading?<div className="state">Loading lineage…</div>:null}{lineage.isError?<div className="state error">{lineage.error.message}</div>:null}{lineage.data?<div className="detail-facts"><p><strong>Group:</strong> {lineage.data.group?.group_code||"Individual plant"}</p><p><strong>Mother:</strong> {lineage.data.mother?`${lineage.data.mother.plant_tag} · ${lineage.data.mother.strain_name}`:"No first-class mother link"}</p><p><strong>Source lot:</strong> {lineage.data.source_lot?.lot_code||"—"}</p><p><strong>External package:</strong> {lineage.data.source_lot?.compliance_package_id||"—"}</p></div>:null}</section>
     <RegulatoryDetailPanel entityType="plant" entityId={plant.id}/>
     {canWrite ? <><div className="form-grid"><label>Next phase<select value={target} onChange={event => setTarget(event.target.value as PlantPhase)}><option value="">No phase change</option>{next[plant.phase].map(value => <option key={value}>{value}</option>)}</select></label><label>Room<input value={room} onChange={event => setRoom(event.target.value)} /></label><label className="span-2">Reason<input value={reason} onChange={event => setReason(event.target.value)} /></label></div><button className="primary submit" disabled={mutation.isPending || (!target && room === plant.room_code)} onClick={() => mutation.mutate()}>Record change</button>{mutation.isError ? <div className="form-error">{mutation.error.message}</div> : null}</> : <div className="info-banner">Your role can review this plant and its lifecycle history but cannot post cultivation changes.</div>}

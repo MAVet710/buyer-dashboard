@@ -12,11 +12,11 @@ const metrics = {
 type Metric = keyof typeof metrics;
 type Target = { minimum: number | null; maximum: number | null; stale_minutes: number };
 export type EnvironmentReading = {
-  metric: Metric; source: string; device_id: string; value: number | null; unit: string;
+  metric: string; source: string; device_id: string; value: number | null; unit: string;
   quality: string | null; observed_at: string | null; states: string[]; target: Target | null;
   exception_id?: string; work_item_id?: string | null;
   trend_24h: { kind: "continuous"; count: number; min: number; max: number; average: number }
-    | { kind: "event_count" | "volume_total"; count: number; total: number } | null;
+    | { kind: "event_count" | "event_total" | "volume_total" | "duration_total" | "state_total"; count: number; total: number } | null;
 };
 type Snapshot = { readings: EnvironmentReading[]; exceptions: EnvironmentReading[]; truncated: boolean; as_of: string };
 type Room = { id: string; room_code: string; display_name: string; active: boolean };
@@ -26,7 +26,7 @@ export function CultivationEnvironmentPanel({ initialRoomId = "", initialExcepti
   const [selected, setSelected] = useState(initialRoomId);
   const rooms = useQuery({ queryKey: ["cultivation-rooms"], queryFn: ({ signal }) => apiGet<{ items: Room[] }>(`${base}/rooms`, signal) });
   const account = useQuery({ queryKey: ["account-context"], queryFn: ({ signal }) => apiGet<{ user: { role: string } }>("/api/v1/account/context", signal) });
-  const roomId = rooms.data?.items.some(room => room.id === selected) ? selected : rooms.data?.items[0]?.id ?? "";
+  const roomId = selected ? (rooms.data?.items.some(room => room.id === selected) ? selected : "") : rooms.data?.items[0]?.id ?? "";
   const canWrite = ["dev", "admin", "supervisor", "operator", "qa"].includes(account.data?.user.role ?? "");
   return <section className="inventory-panel">
     <div className="section-heading"><div><h3>Room environment</h3><p>Decision support only. No equipment control or vendor adapter is connected by this feature.</p></div></div>
@@ -34,7 +34,7 @@ export function CultivationEnvironmentPanel({ initialRoomId = "", initialExcepti
       <label>Environment room<select value={roomId} onChange={event => setSelected(event.target.value)}>
         {rooms.data.items.map(room => <option key={room.id} value={room.id}>{room.display_name || room.room_code}{room.active ? "" : " (inactive)"}</option>)}
       </select></label>
-      {roomId ? <RoomEnvironment key={roomId} roomId={roomId} canWrite={canWrite} initialExceptionId={initialExceptionId} /> : <p className="empty">Configure a cultivation room to record environmental observations.</p>}
+      {roomId ? <RoomEnvironment key={roomId} roomId={roomId} canWrite={canWrite} initialExceptionId={initialExceptionId} /> : <p className="empty">{selected ? "Requested room is unavailable. Choose an available room explicitly." : "Configure a cultivation room to record environmental observations."}</p>}
     </>}
   </section>;
 }
@@ -70,18 +70,18 @@ export function EnvironmentTable({ readings, canWrite = false, initialExceptionI
     {readings.map(row => {
       const focused = Boolean(row.exception_id && row.exception_id === initialExceptionId);
       return <tr key={`${row.metric}-${row.source}-${row.device_id}`} className={focused ? "telemetry-focus" : undefined} aria-current={focused ? "true" : undefined}>
-        <td>{metrics[row.metric][0]}<br /><small>{row.source || "No source"}{row.device_id ? ` / ${row.device_id}` : ""}</small>{focused ? <><br /><strong>Focused exception</strong></> : null}</td>
+        <td>{Object.hasOwn(metrics, row.metric) ? metrics[row.metric as Metric][0] : row.metric.replaceAll("_", " ")}<br /><small>{row.source || "No source"}{row.device_id ? ` / ${row.device_id}` : ""}</small>{focused ? <><br /><strong>Focused exception</strong></> : null}</td>
         <td>{row.value === null ? "No observation" : `${number(row.value)} ${row.unit}`}<br /><small>{row.observed_at ? new Date(row.observed_at).toLocaleString() : ""}</small></td>
         <td className={row.states.includes("current") ? "" : "warning-text"}>{row.states.map(state => state === "current" && row.metric.startsWith("irrigation_") ? "Recorded" : state.replaceAll("_", " ")).join(", ")}</td>
         <td>{row.trend_24h ? row.trend_24h.kind === "continuous" ? <>{row.trend_24h.count} valid readings<br />Min {number(row.trend_24h.min)}, max {number(row.trend_24h.max)}, avg {number(row.trend_24h.average)} {row.unit}</>
-          : row.trend_24h.kind === "event_count" ? <>{number(row.trend_24h.total)} recorded events</>
-            : <>Total {number(row.trend_24h.total)} {row.unit}<br />{row.trend_24h.count} valid volume observations</> : "No valid readings"}</td>
+          : row.trend_24h.kind === "event_count" || row.trend_24h.kind === "event_total" ? <>{number(row.trend_24h.total)} recorded events</>
+            : <>Total {number(row.trend_24h.total)} {row.unit}<br />{row.trend_24h.count} valid {row.trend_24h.kind === "duration_total" || row.metric === "irrigation_duration" ? "duration" : row.trend_24h.kind === "volume_total" ? "volume" : "state"} observations</> : "No valid readings"}</td>
         <td>{row.target ? <>{row.target.minimum ?? "No minimum"} to {row.target.maximum ?? "no maximum"} {row.unit}<br /><small>Stale after {row.target.stale_minutes} minutes</small></> : "Not configured"}</td>
         <td>{row.exception_id ? row.work_item_id
           ? <a className="secondary" href={`/work?item=${encodeURIComponent(row.work_item_id)}`}>Open Work</a>
           : canWrite ? <button className="secondary" type="button" disabled={creatingId === row.exception_id} onClick={() => onCreateWork(row.exception_id!)}>{creatingId === row.exception_id ? "Creating..." : "Create Doobie Work"}</button>
             : <span>Review required</span>
-          : "—"}</td>
+          : "No follow-up"}</td>
       </tr>;
     })}
   </tbody></table></div>;

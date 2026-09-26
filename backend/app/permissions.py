@@ -41,6 +41,8 @@ ROLE_DEFAULTS: dict[str, frozenset[str]] = {
 
 # Match existing role behavior; endpoint role and capability gates remain mandatory.
 _OPERATION_PERMISSIONS = [("work.create", "Work", "Create operational work", "Create canonical Work items and templates; existing role checks still apply.", "dev admin buyer planner supervisor operator qa"),
+ ('cultivation.manage_intelligence', 'Cultivation', 'Manage cultivation cycles and recipes', 'Manage scoped cycle relationships, approve recipe versions and record cultivation events.', 'dev admin supervisor operator qa'),
+ ('cultivation.manage_connections', 'Cultivation', 'Manage cultivation connections', 'Configure or revoke read-only telemetry connections and device mappings. Facility administrator role remains required.', 'dev admin'),
  ('white_label.manage_plans',
   'Production',
   'Manage White Label plans',
