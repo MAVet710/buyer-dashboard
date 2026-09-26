@@ -123,7 +123,7 @@ class EdgeStore:
                  max_disk_bytes=536870912, max_batch=500, max_query_rows=10000,
                  max_gap_seconds=300, bucket_seconds=3600,
                  max_window_seconds=2678400, busy_timeout_ms=5000,
-                 max_rollup_rows=100000, max_rollup_streams=1000):
+                 max_rollup_rows=100000, max_rollup_streams=1000, read_only=False):
         for value in (max_scope_rows, max_scope_bytes, max_disk_bytes, max_batch,
                       max_query_rows, max_gap_seconds, bucket_seconds, max_window_seconds, busy_timeout_ms,
                       max_rollup_rows, max_rollup_streams):
@@ -131,6 +131,9 @@ class EdgeStore:
                 raise EdgeError("invalid_limit")
         if max_gap_seconds > 86400 or bucket_seconds > 86400 or max_window_seconds > 2678400:
             raise EdgeError("invalid_limit")
+        if type(read_only) is not bool:
+            raise EdgeError("invalid_read_mode")
+        self.read_only = read_only
         self.path = Path(path)
         self.max_scope_rows, self.max_scope_bytes = max_scope_rows, max_scope_bytes
         self.max_disk_bytes, self.max_batch = max_disk_bytes, max_batch
@@ -138,6 +141,15 @@ class EdgeStore:
         self.bucket_seconds, self.max_window_seconds = bucket_seconds, max_window_seconds
         self.busy_timeout_ms = busy_timeout_ms
         self.max_rollup_rows, self.max_rollup_streams = max_rollup_rows, max_rollup_streams
+        if self.read_only:
+            # Query-time inspection must never initialize schema or invalidate
+            # another tenant's legacy aggregates. Upgrades belong to host startup.
+            with self._db() as db:
+                config = _json({"schema": 1, "bucket_seconds": bucket_seconds, "max_gap_seconds": max_gap_seconds})
+                row = db.execute("SELECT config FROM edge_config WHERE id=1").fetchone()
+                if row is None or row[0] != config:
+                    raise EdgeError("store_configuration_mismatch")
+            return
         with self._db() as db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS edge_config (id INTEGER PRIMARY KEY CHECK(id=1), config TEXT NOT NULL);
@@ -187,6 +199,17 @@ class EdgeStore:
     def _db(self, write=False):
         db = None
         try:
+            if self.read_only:
+                if write:
+                    raise EdgeError("read_only_store")
+                db = sqlite3.connect(self.path.absolute().as_uri() + "?mode=ro", uri=True,
+                                     timeout=self.busy_timeout_ms / 1000, isolation_level=None)
+                db.row_factory = sqlite3.Row
+                db.execute("PRAGMA query_only=ON")
+                db.execute(f"PRAGMA busy_timeout={self.busy_timeout_ms}")
+                db.execute("BEGIN")
+                yield db
+                return
             db = sqlite3.connect(self.path, timeout=self.busy_timeout_ms / 1000, isolation_level=None)
             db.row_factory = sqlite3.Row
             db.execute(f"PRAGMA busy_timeout={self.busy_timeout_ms}")

@@ -124,9 +124,8 @@ for (const width of [390, 1280]) {
       { ...row, source_device_id: "quarantine-device", event_id: `quarantine-${width}`, observed_at: new Date(Date.now() + 86400000).toISOString() },
     ];
     await page.getByLabel("Measurement content").fill(JSON.stringify(content));
-    await page.getByLabel("Explicit import mappings (JSON)").fill(JSON.stringify([
-      { source_channel: "temp", source_metric: "vendor_temp", metric: "temperature", unit: "F" },
-    ]));
+    await page.getByRole("button", { name: "Use source channels for mapping" }).click();
+    await page.getByRole("region", { name: "Review channel mappings" }).getByLabel("Normalized measurement").selectOption("temperature");
     const previewed = page.waitForResponse(response => response.url().endsWith("/imports/preview"));
     await page.getByRole("button", { name: "Preview import", exact: true }).click();
     const preview = await previewed; expect(preview.status()).toBe(200);
