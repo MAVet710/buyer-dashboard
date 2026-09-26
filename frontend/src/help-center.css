@@ -339,6 +339,26 @@
 .help-nav-path strong { color: #ef8b49; }
 .help-nav-path span { color: #c3bcb4; }
 .help-workspace-shot { margin: 34px 0; }
+.help-section-shot {
+  margin: 24px 0 26px;
+  overflow: hidden;
+  border: 1px solid #3b3028;
+  border-radius: 12px;
+  background: #0d1011;
+}
+.help-section-shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.help-section-shot figcaption {
+  padding: 10px 13px;
+  color: #8f8780;
+  border-top: 1px solid #2b2926;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: .12em;
+}
 .help-callout {
   margin: 34px 0;
   padding: 24px 26px;
