@@ -17,6 +17,28 @@ const icons = {
   reports: BarChart3, settings: Settings, intelligence: Bot,
 } as const;
 
+const sectionVisuals: Record<string, string[]> = {
+  "/help/getting-started": [
+    "/help/screens/getting-started-guide.webp",
+    "/help/screens/settings-integrations-guide.webp",
+    "/help/screens/home-guide.webp",
+  ],
+  "/help/buying": [
+    "/help/screens/buying-recommendations-guide.webp",
+    "/help/screens/buying-planning-settings-guide.webp",
+  ],
+  "/help/inventory": [
+    "/help/screens/inventory-catalog-admin-guide.webp",
+    "/help/screens/inventory-receiving-guide.webp",
+    "/help/screens/inventory-transfers-guide.webp",
+    "/help/screens/inventory-audits-guide.webp",
+  ],
+  "/help/cultivation": [
+    "/help/screens/cultivation-guide.webp",
+    "/help/screens/cultivation-post-harvest-guide.webp",
+  ],
+};
+
 function normalizedPath() {
   const raw = window.location.pathname || "/help";
   return raw === "/" ? raw : raw.replace(/\/+$/, "");
@@ -48,7 +70,7 @@ function HelpLanding() {
         <div className="help-hero-copy">
           <span className="mh-eyebrow">DoobieLogic Help Center</span>
           <h1>How the work<br/><span>actually gets done.</span></h1>
-          <p>Step-by-step guidance for the real DoobieLogic workspaces. Every product image in these guides is a screen capture from the working application, not a rendering.</p>
+          <p>Real walkthroughs for the screens you actually use. The screenshots come straight from DoobieLogic, and the guide stays next to you while you work.</p>
           <HelpSearch value={query} onChange={setQuery} />
           <div className="help-hero-links">
             <a className="mh-button" href="/help/getting-started">Start with the basics <ArrowRight size={17}/></a>
@@ -80,7 +102,7 @@ function HelpLanding() {
         <div className="help-section-heading">
           <span className="mh-eyebrow">Browse by work area</span>
           <h2 id="browse-help">The Help Center mirrors the app.</h2>
-          <p>Start with the same work area you use in DoobieLogic, then drill into the task you are trying to complete.</p>
+          <p>Pick the part of DoobieLogic you are already in, then jump straight to the thing you are trying to do.</p>
         </div>
         <div className="help-category-grid">
           {helpCategories.map(category => {
@@ -102,7 +124,7 @@ function HelpLanding() {
 
       <section className="help-proof mh-container">
         <div><span className="mh-eyebrow">Built from the product</span><h2>See the screen.<br/>Then do the work.</h2>
-          <p>Guides use the live DEV Sandbox so navigation, labels, and controls stay grounded in the application operators actually use.</p></div>
+          <p>What you see here is what you will see in the app. Same screens, same buttons, same workflow.</p></div>
         <div className="help-proof-shots">
           <img src="/help/screens/inventory-guide.webp" alt="Real DoobieLogic Inventory workspace" loading="lazy"/>
           <img src="/help/screens/extraction-guide.webp" alt="Real DoobieLogic Extraction workspace" loading="lazy"/>
@@ -155,21 +177,28 @@ function HelpArticleView({ article }: { article: HelpArticle }) {
             </figure> : null}
 
             {article.thingsToKnow?.length ? <section className="help-callout">
-              <h2>Things to know</h2><ul>{article.thingsToKnow.map(item => <li key={item}>{item}</li>)}</ul>
+              <h2>Good to know</h2><ul>{article.thingsToKnow.map(item => <li key={item}>{item}</li>)}</ul>
             </section> : null}
 
             <div className="help-article-sections">
-              {article.sections.map((section, index) => <section id={"step-" + (index + 1)} key={section.title}>
-                <span className="help-section-number">{String(index + 1).padStart(2, "0")}</span>
-                <h2>{section.title}</h2>{section.body ? <p>{section.body}</p> : null}
-                {section.steps?.length ? <ol>{section.steps.map(step => <li key={step}>{step}</li>)}</ol> : null}
-                {section.notes?.length ? <div className="help-note"><strong>Keep in mind</strong><ul>{section.notes.map(note => <li key={note}>{note}</li>)}</ul></div> : null}
-              </section>)}
+              {article.sections.map((section, index) => {
+                const sectionImage = sectionVisuals[article.path]?.[index];
+                return <section id={"step-" + (index + 1)} key={section.title}>
+                  <span className="help-section-number">{String(index + 1).padStart(2, "0")}</span>
+                  <h2>{section.title}</h2>{section.body ? <p>{section.body}</p> : null}
+                  {sectionImage ? <figure className="help-section-shot">
+                    <img src={sectionImage} alt={section.title + " in DoobieLogic"} loading="lazy" />
+                    <figcaption>THIS STEP · REAL DOOBIELOGIC SCREEN</figcaption>
+                  </figure> : null}
+                  {section.steps?.length ? <ol>{section.steps.map(step => <li key={step}>{step}</li>)}</ol> : null}
+                  {section.notes?.length ? <div className="help-note"><strong>Watch for</strong><ul>{section.notes.map(note => <li key={note}>{note}</li>)}</ul></div> : null}
+                </section>;
+              })}
             </div>
 
             <section className="help-finish">
-              <div><span className="mh-eyebrow">Ready to work it?</span><h2>Open the real workspace.</h2>
-                <p>Use the guide beside DoobieLogic and complete the task in the facility context that owns the record.</p></div>
+              <div><span className="mh-eyebrow">Ready to try it?</span><h2>Open DoobieLogic and follow along.</h2>
+                <p>Keep this guide open beside the app and work through it in the facility where the record actually lives.</p></div>
               <a className="mh-button" href={APP_URL}>Open DoobieLogic <ArrowRight size={17}/></a>
             </section>
 
