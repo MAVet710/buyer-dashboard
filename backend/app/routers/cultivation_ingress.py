@@ -7,9 +7,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import ClientDisconnect
-from modules.cultivation.ingress import MAX_BYTES, IDENTITY, authenticate, commit_batch, fail, limiter, validate_envelope
+from modules.cultivation.ingress import MAX_BYTES, authenticate, commit_batch, fail, limiter, validate_envelope
 from modules.cultivation.gateway import configured_edge
-from modules.cultivation.edge_store import EdgeError
+from modules.cultivation.edge_store import EdgeError, validate_source_identity
 from ..database import get_engine
 
 router=APIRouter(prefix='/external/v1/cultivation-telemetry',tags=['cultivation'])
@@ -56,7 +56,8 @@ def _parse(body):
 async def batches(connection_id:str,request:Request,engine=Depends(get_engine)):
     try:
         with limiter.slot():
-            if not IDENTITY.fullmatch(connection_id):fail(403,'ingress_forbidden')
+            try:validate_source_identity(connection_id)
+            except EdgeError:fail(403,'ingress_forbidden')
             authorization=request.headers.get('authorization','')
             scheme,_,token=authorization.partition(' ')
             if scheme.lower()!='bearer':fail(401,'invalid_credential')

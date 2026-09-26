@@ -42,11 +42,18 @@ def _hash(value):
 def _token(value, *, optional=False):
     if optional and value is None:
         return None
-    if not isinstance(value, str) or not re.fullmatch(r"[\w .:/%+°µ²-]{1,160}", value) or "://" in value:
+    if not isinstance(value, str) or not re.fullmatch(r"[\w@ .:/%+°µ²-]{1,160}", value) or "://" in value:
         raise EdgeError("invalid_identifier")
     if any(word in value.lower() for word in ("bearer ", "password", "secret", "api_key", "access_token")):
         raise EdgeError("unsafe_identifier")
     return value
+
+
+def validate_source_identity(value):
+    """Machine identifiers share durable-store safety, with a bounded wire alphabet."""
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_.:@-]{1,120}", value):
+        raise EdgeError("invalid_identifier")
+    return _token(value)
 
 
 def _timestamp(value):

@@ -2,7 +2,6 @@
 from datetime import datetime, timezone
 from dataclasses import dataclass
 import json
-import re
 import threading
 import time
 from collections import OrderedDict
@@ -17,14 +16,13 @@ from modules.coman.models import Facility, Organization, new_id
 from modules.operational_moats.models import ServiceAccount
 from modules.operational_moats.service import _hash_token, _new_token
 from .context_resolution import build_resolver
-from .edge_store import Scope
+from .edge_store import Scope, EdgeError, validate_source_identity
 from .ingress_models import CultivationIngressGrant
 from .intelligence_models import TelemetryConnection
 from .intelligence_service import IntelligenceService, VersionInput, fields
 from .telemetry import utc
 
 MAX_BYTES = 1048576
-IDENTITY = re.compile(r'^[A-Za-z0-9_.:@-]{1,120}$')
 
 
 def fail(status, code):
@@ -71,7 +69,8 @@ def authenticate(session, token, connection_id, headers, *, lock=False):
 def validate_envelope(data, max_batch=500):
     if not isinstance(data,dict) or set(data)!={'schema_version','batch_id','readings'}:fail(422,'invalid_envelope')
     if type(data['schema_version']) is not int or data['schema_version']!=1:fail(422,'unsupported_schema')
-    if not isinstance(data['batch_id'],str) or not IDENTITY.fullmatch(data['batch_id']):fail(422,'invalid_identity')
+    try:validate_source_identity(data['batch_id'])
+    except EdgeError:fail(422,'invalid_identity')
     readings=data['readings']
     if not isinstance(readings,list) or not readings:fail(422,'invalid_readings')
     if len(readings)>min(500,max_batch):fail(413,'reading_limit')
@@ -79,7 +78,8 @@ def validate_envelope(data, max_batch=500):
     for row in readings:
         if not isinstance(row,dict) or not required<=row.keys() or row.keys()-required-{'quality'}:fail(422,'invalid_reading_structure')
         for key in ('event_id','source_device_id','source_channel','source_metric'):
-            if not isinstance(row[key],str) or not IDENTITY.fullmatch(row[key]):fail(422,'invalid_identity')
+            try:validate_source_identity(row[key])
+            except EdgeError:fail(422,'invalid_identity')
         for key,value in row.items():
             if isinstance(value,(dict,list)) or (isinstance(value,str) and len(value)>256):fail(422,'invalid_reading_structure')
         # Invalid scalar measurement/time/quality belongs in durable quarantine.

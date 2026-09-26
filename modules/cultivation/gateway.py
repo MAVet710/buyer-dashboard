@@ -167,7 +167,7 @@ class TelemetryGatewayService(IntelligenceService):
             grants=s.execute(select(CultivationIngressGrant,ServiceAccount.active).join(ServiceAccount,ServiceAccount.id==CultivationIngressGrant.service_account_id).where(*self.scope(CultivationIngressGrant),CultivationIngressGrant.connection_id==identity).order_by(CultivationIngressGrant.created_at.desc()).limit(201)).all()
             grant_states=[grant_payload(r,active)['status'] for r,active in grants[:200]]
         diagnostics=self.edge().diagnostics(self._scope(identity)) if self._edge or self._path else None
-        if diagnostics is not None and hasattr(self.edge(),'transport_status'):
+        if diagnostics is not None:
             transport_status=self.edge().transport_status(self._scope(identity))
             diagnostics={**diagnostics,'last_push_received_at':transport_status['last_committed_at'],'last_push_batch_id':transport_status['last_batch_id'],'transport':transport_status}
         last_push=diagnostics.get('last_push_received_at') if diagnostics else None

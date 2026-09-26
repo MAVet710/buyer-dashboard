@@ -72,8 +72,8 @@ export function ConnectionHealthPanel({ data }: { data: PushHealth }) {
   const observed = data.freshness?.last_valid_observed_at;
   const observationAge = observed ? (now - Date.parse(observed)) / 1000 : NaN;
   const stale = data.freshness?.observation_status === "stale" || (typeof staleAfter === "number" && Number.isFinite(observationAge) && observationAge > staleAfter);
-  const receiving = !data.connection.revoked_at && data.connection.status !== "revoked" && !stale && ingress?.grant_state === "active" && ingress.transport_state === "received" && data.freshness?.observation_status === "recent" && typeof staleAfter === "number" && Number.isFinite(receiptAge) && receiptAge >= 0 && receiptAge <= staleAfter;
-  return <section aria-label="Connection health"><h3>Connection health</h3>
+  const receiving = !data.connection.revoked_at && data.connection.status !== "revoked" && !stale && ingress?.grant_state === "active" && ingress.transport_state === "receiving" && data.freshness?.observation_status === "recent" && typeof staleAfter === "number" && Number.isFinite(receiptAge) && receiptAge >= 0 && receiptAge <= staleAfter;
+  return <section aria-label="Connection health"><h3>Connection health</h3><p>Current evidence refreshes every 30 seconds while this browser tab is active.</p>
     {(data.connection.revoked_at || data.connection.status === "revoked") && <p>Connection revoked</p>}
     {!edge || !ingress ? <p>Status unavailable</p> : <>
       <p>Grant state: {ingress.grant_state}. {ingress.grants_truncated && "Grant evidence is incomplete."}</p>

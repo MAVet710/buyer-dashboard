@@ -28,7 +28,7 @@ content encoding. Optional facility/org scope headers must match the binding.
 ```
 
 All illustrated reading fields are required except quality (defaults to valid).
-Identities are 1..120 ASCII letters/digits/`_.:@-`; batch_id is the same (max 120).
+Identities are 1..120 ASCII letters/digits/`_.:@-`; batch_id is the same (max 120). All source and batch identifiers also pass the same durable-store safety check. Credential-like substrings (`password`, `secret`, `api_key`, `access_token`) are rejected before persistence, never replaced with random quarantine identities. Supported identifiers, including `@`, are preserved unchanged.
 Only these fields are accepted. Measurement value is a scalar, not an object or
 array. Strings are bounded. Original timestamp/unit/value representations survive
 ingestion. Bad measurement, timestamp or quality is persisted as quarantine;
@@ -86,3 +86,9 @@ after 3 seconds and each query after 5 seconds. Exhaustion never acknowledges.
 SQLite authorization uses an explicit read transaction; PostgreSQL uses the
 existing facility lock and then the service-account lock. Human grant writers use
 the same facility-first ordering. All eight snapshot queries remain set based.
+
+## Independent review corrections and current views
+
+The machine receiver and durable store now share identifier safety validation. Supported `@` identifiers remain unchanged through ingest, duplicate replay, credential rotation and batch splitting. Unsafe identities are rejected for the complete batch before local storage is opened, so they cannot become random quarantine IDs or misleading storage errors. The targeted real HTTP, collector and edge regression suite passed 85 tests after this correction.
+
+The operator panel consumes the actual `receiving` transport state, not an unreachable fixture-only alias. Current room detail and selected connection-health queries refresh every 30 seconds while the browser tab is active. Historical windows, lists, grants and other endpoints are not periodically polled. Seventeen Chrome cases include newly delivered readings appearing without navigation; 185 frontend unit tests, zero-warning lint, TypeScript and a production build passed. This is candidate validation, not native vendor or production deployment proof.

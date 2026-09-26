@@ -188,8 +188,11 @@ def test_health_import_is_not_receiving(h):
     health=h.s.health(h.c['id'])
     assert health['freshness']['live_connected'] is False
     assert health['freshness']['sensor_freshness_status']=='unknown'
-    # Without optional edge push receipt metadata, never infer push from raw/import.
-    if not health['ingress']['last_push_received_at']:assert health['ingress']['transport_state']=='awaiting'
+    # Same-release transport tracking is mandatory, not a best-effort optional seam.
+    assert health['ingress']['last_push_received_at'] is not None
+    assert health['ingress']['transport_state']=='receiving'
+    assert health['edge']['transport']['accepted_total']==0
+    assert health['edge']['transport']['duplicate_total']==1
 
 
 def test_duplicate_conflicting_scope_headers_denied(h):

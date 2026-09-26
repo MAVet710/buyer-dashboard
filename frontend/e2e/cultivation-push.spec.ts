@@ -10,7 +10,7 @@ async function fixture(page: Page, options: Options = {}) {
   const writes: { path: string; body: unknown; facility?: string }[] = [];
   let grants: IngressGrants = { grants: options.empty ? [] : [grant], truncated: false };
   const workspace: Workspace = { rooms: [], cycles: [], recipes: [], connections: [connection], truncated: false, can_manage: !options.readOnly, can_manage_connections: !options.readOnly, decision_support_only: true };
-  const health: PushHealth = { ingress: { grant_state: "active", grants_truncated: false, transport_state: "received", last_push_received_at: new Date().toISOString(), last_push_batch_id: "fixture-batch" }, freshness: { basis: "connection_scope_not_room_condition", last_import_at: null, last_received_at: new Date().toISOString(), last_valid_observed_at: "2020-01-01T00:00:00Z", observation_status: "stale", sensor_freshness_status: "unknown", last_provider_contact_at: null, live_connected: false }, connection: { ...connection, stale_after_seconds: 120 }, edge: { last_push_received_at: new Date().toISOString(), last_valid_observed_at: "2020-01-01T00:00:00Z", counts: { pending: 3 }, limits: { rows: 100000 }, capacity: { state: "full", limiting_resource: "rows" } }, live_contract_status: "blocked", ...options.health };
+  const health: PushHealth = { ingress: { grant_state: "active", grants_truncated: false, transport_state: "receiving", last_push_received_at: new Date().toISOString(), last_push_batch_id: "fixture-batch" }, freshness: { basis: "connection_scope_not_room_condition", last_import_at: null, last_received_at: new Date().toISOString(), last_valid_observed_at: "2020-01-01T00:00:00Z", observation_status: "stale", sensor_freshness_status: "unknown", last_provider_contact_at: null, live_connected: false }, connection: { ...connection, stale_after_seconds: 120 }, edge: { last_push_received_at: new Date().toISOString(), last_valid_observed_at: "2020-01-01T00:00:00Z", counts: { pending: 3 }, limits: { rows: 100000 }, capacity: { state: "full", limiting_resource: "rows" } }, live_contract_status: "blocked", ...options.health };
   await page.route("**/api/**", async route => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
@@ -168,7 +168,7 @@ test("grant diagnostics failure is explicit", async ({ page }) => {
 
 test("receiving, backlog and storage full remain independent", async ({ page }) => {
   const now = new Date().toISOString();
-  await fixture(page, { health: { ingress: { grant_state: "active", grants_truncated: false, transport_state: "received", last_push_received_at: now, last_push_batch_id: "fixture-batch" }, freshness: { basis: "connection_scope_not_room_condition", last_import_at: null, last_received_at: now, last_valid_observed_at: now, observation_status: "recent", sensor_freshness_status: "unknown", last_provider_contact_at: null, live_connected: false } } });
+  await fixture(page, { health: { ingress: { grant_state: "active", grants_truncated: false, transport_state: "receiving", last_push_received_at: now, last_push_batch_id: "fixture-batch" }, freshness: { basis: "connection_scope_not_room_condition", last_import_at: null, last_received_at: now, last_valid_observed_at: now, observation_status: "recent", sensor_freshness_status: "unknown", last_provider_contact_at: null, live_connected: false } } });
   await expect(page.getByText("Receiving readings", { exact: true })).toBeVisible();
   await expect(page.getByText(/Mapping backlog/)).toBeVisible();
   await expect(page.getByText("Storage limit reached", { exact: true })).toBeVisible();
@@ -178,4 +178,27 @@ test("a historical import does not become a push receipt", async ({ page }) => {
   await fixture(page, { health: { ingress: { grant_state: "unprovisioned", grants_truncated: false, transport_state: "awaiting", last_push_received_at: null, last_push_batch_id: null } } });
   await expect(page.getByText("Awaiting first reading", { exact: true })).toBeVisible();
   await expect(page.getByText("Receiving readings", { exact: true })).toHaveCount(0);
+});
+
+
+test("current connection refreshes new evidence without navigation", async ({ page }) => {
+  await page.clock.install();
+  await fixture(page);
+  await expect(page.getByText("Readings are stale", { exact: true })).toBeVisible();
+  let polls = 0;
+  await page.route("**/api/v1/cultivation-intelligence/connections/fixture-push/health", async route => {
+    polls++;
+    const now = new Date().toISOString();
+    const fresh: PushHealth = {
+      connection: { ...connection, stale_after_seconds: 120 },
+      ingress: { grant_state: "active", grants_truncated: false, transport_state: "receiving", last_push_received_at: now, last_push_batch_id: "new-batch" },
+      freshness: { basis: "connection_scope_not_room_condition", last_import_at: null, last_received_at: now, last_valid_observed_at: now, observation_status: "recent", sensor_freshness_status: "unknown", last_provider_contact_at: null, live_connected: false },
+      edge: { counts: { pending: 0 } }, live_contract_status: "normalized_push",
+    };
+    await route.fulfill({ json: fresh });
+  });
+  await page.clock.fastForward(30_100);
+  await expect(page.getByText("Receiving readings", { exact: true })).toBeVisible();
+  await expect(page.getByText("Readings are stale", { exact: true })).toHaveCount(0);
+  expect(polls).toBe(1);
 });
