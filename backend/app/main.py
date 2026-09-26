@@ -29,6 +29,7 @@ from .routers.metrc_harvest_actions import router as metrc_harvest_actions_route
 from .routers.audits import router as audit_router
 from .routers.plants import router as plants_router
 from .routers.cultivation_bulk import router as cultivation_bulk_router
+from .routers.cultivation_telemetry import router as cultivation_telemetry_router
 from .routers.production import router as production_router
 from .routers.white_label import router as white_label_router
 from .routers.production_mutations import router as production_mutations_router
@@ -291,6 +292,7 @@ app.include_router(metrc_package_actions_router, prefix=settings.api_prefix)
 app.include_router(audit_router, prefix=settings.api_prefix)
 app.include_router(plants_router, prefix=settings.api_prefix)
 app.include_router(cultivation_bulk_router, prefix=settings.api_prefix)
+app.include_router(cultivation_telemetry_router, prefix=settings.api_prefix)
 app.include_router(production_router, prefix=settings.api_prefix)
 app.include_router(white_label_router, prefix=settings.api_prefix)
 app.include_router(production_mutations_router, prefix=settings.api_prefix)

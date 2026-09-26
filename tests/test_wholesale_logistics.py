@@ -574,7 +574,8 @@ def test_work_pointer_set_null_and_migration_chain(setup):
     from sqlalchemy import text
     from modules.coman.models import WorkItem
     scripts = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert scripts.get_heads() == ["0084_wholesale_logistics"]
+    assert scripts.get_heads() == ["0085_cultivation_telemetry"]
+    assert scripts.get_revision("0085_cultivation_telemetry").down_revision == "0084_wholesale_logistics"
     assert scripts.get_revision("0084_wholesale_logistics").down_revision == "0083_onboarding_reporting"
     engine, service, shipment, *_ = setup
     rid = run(service)

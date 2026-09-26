@@ -109,7 +109,7 @@ export default function App() {
     : page === "Buyer Operations" || page === "Purchasing" ? <BuyerCommandCenterPage onNavigate={setPage} />
     : page === "Inventory" ? <InventoryPage initialOperation="retail" onNavigate={navigate} />
     : page === "Retail Inventory Transfers" ? <InventoryTransfersPage operation="retail" />
-    : page === "Cultivation" ? <CultivationOpsPage key={focus.get("plant") || "grow"} initialPlantId={focus.get("plant") || ""} onNavigate={navigate} />
+    : page === "Cultivation" ? <CultivationOpsPage key={[focus.get("plant"), focus.get("room"), focus.get("telemetry")].filter(Boolean).join(":") || "grow"} initialPlantId={focus.get("plant") || ""} initialRoomId={focus.get("room") || ""} initialTelemetryId={focus.get("telemetry") || ""} onNavigate={navigate} />
     : page === "Post-Harvest" ? <PostHarvestPage />
     : page === "Production Inventory" ? <InventoryPage initialOperation="production" onNavigate={navigate} />
     : page === "Production Inventory Transfers" ? <InventoryTransfersPage operation="production" />

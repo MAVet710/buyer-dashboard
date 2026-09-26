@@ -300,7 +300,7 @@ def test_migration_is_single_head_and_owner_foreign_keys():
     from alembic.script import ScriptDirectory
     from sqlalchemy import inspect
     script = ScriptDirectory.from_config(Config('alembic.ini'))
-    assert script.get_heads() == ['0084_wholesale_logistics']
+    assert script.get_heads() == ['0085_cultivation_telemetry']
     assert script.get_revision('0082_white_label_execution').down_revision == '0081_wholesale_crm'
     assert script.get_revision('0081_wholesale_crm').down_revision == '0080_doobie_work'
     spec = importlib.util.spec_from_file_location('crm_schema', Path('migrations/versions/0081_wholesale_crm.py'))
