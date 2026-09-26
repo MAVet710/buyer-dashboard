@@ -167,7 +167,7 @@ def test_readiness_is_honest_scoped_and_secret_free(engine):
 
 def test_admin_registry_and_ui_contract():
     rows = permission_registry(context())
-    assert len({row["group"] for row in rows}) == 13
+    assert len({row["group"] for row in rows}) == 14
     assert all(row["description"] and row["label"] for row in rows)
     ui = Path("frontend/src/components/UserPermissionManager.tsx").read_text(encoding="utf-8")
     assert "groups.map(group" in ui and "permission.group===group" in ui

@@ -12,8 +12,8 @@ const WarehousePickPackPage = lazy(() => import("./WarehousePickPackPage").then(
 const WholesaleAccountingPanel = lazy(() => import("./WholesaleAccountingPanel").then(module => ({ default: module.WholesaleAccountingPanel })));
 
 const WholesaleCRMPanel = lazy(() => import("./WholesaleCRMPanel").then(module => ({ default: module.WholesaleCRMPanel })));
-
-type Tab = "pipeline" | "overview" | "inventory" | "orders" | "fulfillment" | "customers" | "accounting" | "storefront";
+const WholesaleLogisticsPanel = lazy(() => import("./WholesaleLogisticsPanel").then(module => ({ default: module.WholesaleLogisticsPanel })));
+type Tab = "pipeline" | "logistics" | "overview" | "inventory" | "orders" | "fulfillment" | "customers" | "accounting" | "storefront";
 type WholesaleLot = {
   lot_id:string; package_id:string; lot_code:string; product_id:string; sku:string; name:string; item_type:string;
   inventory_type:"bulk"|"retail_ready"; available:number; reserved:number; usable:number; unit:string; location:string;
@@ -70,6 +70,7 @@ const TABS:[Tab,string][] = [
   ["inventory","Inventory"],
   ["orders","Orders"],
   ["fulfillment","Fulfillment"],
+  ["logistics","Logistics"],
   ["customers","Customers"],
   ["pipeline","Pipeline"],
   ["accounting","Accounting"],
@@ -81,7 +82,7 @@ function DeferredWorkspace({children}:{children:React.ReactNode}) {
 }
 
 export function WholesaleOpsPage({onNavigate}:{onNavigate:(page:string)=>void}) {
-  const [tab,setTab]=useState<Tab>(() => new URLSearchParams(window.location.search).get("tab") === "customers" ? "customers" : "overview");
+  const [tab,setTab]=useState<Tab>(() => new URLSearchParams(window.location.search).get("dispatch") ? "logistics" : new URLSearchParams(window.location.search).get("tab") === "customers" ? "customers" : "overview");
   const inventoryNeeded=tab==="overview"||tab==="inventory";
   const commercialNeeded=tab==="overview";
   const storefrontNeeded=tab==="overview"||tab==="storefront";
@@ -127,6 +128,7 @@ export function WholesaleOpsPage({onNavigate}:{onNavigate:(page:string)=>void}) 
     {tab==="orders"?<DeferredWorkspace><OrdersPage/></DeferredWorkspace>:null}
     {tab==="fulfillment"?<DeferredWorkspace><WarehousePickPackPage onNavigate={page=>page==="Orders"?setTab("orders"):onNavigate(page)}/></DeferredWorkspace>:null}
     {tab==="customers"||tab==="pipeline"?<DeferredWorkspace><WholesaleCRMPanel key={tab} pipeline={tab==="pipeline"}/></DeferredWorkspace>:null}
+    {tab==="logistics"?<DeferredWorkspace><WholesaleLogisticsPanel/></DeferredWorkspace>:null}
     {tab==="accounting"?<DeferredWorkspace><WholesaleAccountingPanel onNavigate={onNavigate}/></DeferredWorkspace>:null}
     {tab==="storefront"?<DeferredWorkspace><StorefrontSalesUnitManager/><CommerceStorefrontManager/></DeferredWorkspace>:null}
   </div>;

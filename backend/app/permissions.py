@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 from fastapi import HTTPException
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
@@ -11,6 +13,7 @@ from .auth import RequestContext
 
 PERMISSION_REGISTRY: dict[str, dict[str, str]] = {
     "wholesale.manage_crm": {"group": "Wholesale", "label": "Manage wholesale CRM", "description": "Manage relationships, opportunities, quotes and Work follow-ups."},
+    "wholesale.manage_dispatch": {"group": "Wholesale", "label": "Manage dispatch", "description": "Plan delivery runs and record driver outcomes and proof of delivery."},
     "wholesale.view": {"group": "Wholesale", "label": "View wholesale", "description": "View wholesale inventory, storefront configuration, and order activity."},
     "wholesale.edit_items": {"group": "Wholesale", "label": "Edit wholesale items", "description": "Change storefront visibility, featured status, and item ordering."},
     "wholesale.manage_pricing": {"group": "Wholesale", "label": "Manage wholesale pricing", "description": "Change base wholesale prices."},
@@ -37,7 +40,8 @@ ROLE_DEFAULTS: dict[str, frozenset[str]] = {
 
 
 # Match existing role behavior; endpoint role and capability gates remain mandatory.
-_OPERATION_PERMISSIONS = [('white_label.manage_plans',
+_OPERATION_PERMISSIONS = [("work.create", "Work", "Create operational work", "Create canonical Work items and templates; existing role checks still apply.", "dev admin buyer planner supervisor operator qa"),
+ ('white_label.manage_plans',
   'Production',
   'Manage White Label plans',
   'Save, approve and cancel White Label planning documents. Existing role and facility gates still apply.',
@@ -120,7 +124,7 @@ for _key, _group, _label, _description, _roles in _OPERATION_PERMISSIONS:
         ROLE_DEFAULTS[_role] = ROLE_DEFAULTS[_role] | {_key}
 
 
-def permission_snapshot(context: RequestContext, engine: Engine) -> dict:
+def permission_snapshot(context: RequestContext, engine: Engine, *, session: Session | None = None) -> dict:
     role = context.role.casefold()
     if role == "dev":
         return {
@@ -132,7 +136,7 @@ def permission_snapshot(context: RequestContext, engine: Engine) -> dict:
     defaults = ROLE_DEFAULTS.get(role, frozenset({"wholesale.view"}))
     effective = {key: key in defaults for key in PERMISSION_REGISTRY}
     source = {key: "role" for key in PERMISSION_REGISTRY}
-    with Session(engine) as session:
+    with (nullcontext(session) if session is not None else Session(engine)) as session:
         rows = session.scalars(
             select(AppUserPermissionOverride).where(
                 AppUserPermissionOverride.user_id == context.user_id,
@@ -148,13 +152,13 @@ def permission_snapshot(context: RequestContext, engine: Engine) -> dict:
     return {"role": role, "effective": effective, "source": source}
 
 
-def has_permission(context: RequestContext, engine: Engine, permission: str) -> bool:
+def has_permission(context: RequestContext, engine: Engine, permission: str, *, session: Session | None = None) -> bool:
     if permission not in PERMISSION_REGISTRY:
         raise RuntimeError(f"Unknown permission: {permission}")
-    return bool(permission_snapshot(context, engine)["effective"].get(permission))
+    return bool(permission_snapshot(context, engine, session=session)["effective"].get(permission))
 
 
-def require_permission(context: RequestContext, engine: Engine, permission: str) -> None:
-    if not has_permission(context, engine, permission):
+def require_permission(context: RequestContext, engine: Engine, permission: str, *, session: Session | None = None) -> None:
+    if not has_permission(context, engine, permission, session=session):
         label = PERMISSION_REGISTRY[permission]["label"]
         raise HTTPException(403, f"Your account does not have permission to {label.casefold()} at this facility.")
