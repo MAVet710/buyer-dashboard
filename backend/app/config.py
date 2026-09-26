@@ -5,6 +5,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    # Host-owned local SQLite path. Never accepted from a browser request.
+    cultivation_edge_path: str = ""
     # Opt-in alert-only observation. No automatic account or firewall changes.
     security_monitor_enabled: bool = False
     security_notifications_enabled: bool = False

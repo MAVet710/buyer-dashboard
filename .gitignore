@@ -72,3 +72,6 @@ artifacts/metrc-evaluation/*.manifest.json
 artifacts/metrc-evaluation/latest.json
 artifacts/metrc-evaluation/final_report.json
 artifacts/metrc-evaluation/final_report.md
+
+# Isolated local regression databases, archives and temporary evidence
+/.tmp/

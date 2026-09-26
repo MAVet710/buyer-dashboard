@@ -9,20 +9,15 @@ import json
 import math
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 from sqlalchemy import func, select, tuple_
 from sqlalchemy.orm import Session
 
 from modules.coman.audit import record_audit_event
 from modules.coman.models import Facility, WorkItem, new_id
 from .models import CultivationRoom
+from .metrics import CANONICAL_UNITS as METRICS, METRIC_REGISTRY, canonical_metric, normalize_metric_value
 from .telemetry_models import EnvironmentalObservation as Observation, EnvironmentalTarget as Target
-
-METRICS = {
-    "temperature": "C", "relative_humidity": "%", "vpd": "kPa", "co2": "ppm",
-    "substrate_ec": "mS/cm", "substrate_vwc": "%", "irrigation_volume": "L", "irrigation_event": "count",
-}
-Metric = Literal["temperature", "relative_humidity", "vpd", "co2", "substrate_ec", "substrate_vwc", "irrigation_volume", "irrigation_event"]
 
 
 def utc(value: datetime) -> datetime:
@@ -30,38 +25,42 @@ def utc(value: datetime) -> datetime:
 
 
 def normalize(metric: str, value: float, unit: str) -> tuple[float, str]:
-    if not math.isfinite(value):
-        raise ValueError("Measurement must be finite.")
-    canonical = METRICS[metric]
-    if metric == "temperature" and unit == "F":
-        value = (value - 32) * 5 / 9
-    elif metric == "substrate_ec" and unit == "uS/cm":
-        value /= 1000
-    elif metric == "irrigation_volume" and unit == "mL":
-        value /= 1000
-    elif unit != canonical:
-        raise ValueError(f"Unsupported unit for {metric}; use {canonical}.")
-    if metric == "temperature" and value < -273.15:
-        raise ValueError("Temperature is below absolute zero.")
-    if metric != "temperature" and value < 0:
-        raise ValueError("Measurement must be nonnegative.")
-    if metric in {"relative_humidity", "substrate_vwc"} and value > 100:
-        raise ValueError("Percentage must be between 0 and 100.")
-    if metric == "irrigation_event" and value != 1:
-        raise ValueError("An irrigation event has a count of 1.")
-    return round(value, 6), canonical
+    """Backward-compatible wrapper around the controlled metric registry."""
+    _metric, normalized, canonical = normalize_metric_value(metric, value, unit)
+    return normalized, canonical
 
 
 class Reading(BaseModel):
-    model_config = ConfigDict(extra="forbid", allow_inf_nan=False, str_strip_whitespace=True)
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False, str_strip_whitespace=True, frozen=True)
+    _original: tuple | None = PrivateAttr(default=None)
     source: str = Field(min_length=1, max_length=80)
     event_id: str = Field(min_length=1, max_length=120)
     device_id: str = Field(default="", max_length=120)
-    metric: Metric
+    metric: str = Field(min_length=1, max_length=64)
     value: float = Field(ge=-1e12, le=1e12)
     unit: str = Field(max_length=16)
     quality: Literal["valid", "suspect", "invalid"] = "valid"
     observed_at: datetime
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def preserve_source(cls, data, handler):
+        result = handler(data)
+        if isinstance(data, dict):
+            # Capture caller evidence before field whitespace/unit/alias normalization.
+            result._original = (data["metric"], float(data["value"]), data["unit"])
+            metric, value, unit = normalize_metric_value(result.metric, result.value, result.unit)
+            object.__setattr__(result, "metric", metric)
+            object.__setattr__(result, "value", value)
+            object.__setattr__(result, "unit", unit)
+        return result
+
+    @field_validator("value", mode="before")
+    @classmethod
+    def numeric_value(cls, value):
+        if isinstance(value, bool):
+            raise ValueError("Boolean values are not measurements.")
+        return value
 
     @field_validator("observed_at")
     @classmethod
@@ -72,18 +71,24 @@ class Reading(BaseModel):
             raise ValueError("observed_at cannot be in the future.")
         return utc(value)
 
-    @model_validator(mode="after")
-    def units(self):
-        self.value, self.unit = normalize(self.metric, self.value, self.unit)
-        return self
-
-
 class TargetInput(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
-    metric: Metric
+    metric: str = Field(min_length=1, max_length=64)
     minimum: float | None = None
     maximum: float | None = None
     stale_minutes: int = Field(default=60, ge=1, le=10080)
+
+    @field_validator("minimum", "maximum", mode="before")
+    @classmethod
+    def not_boolean(cls, value):
+        if isinstance(value, bool):
+            raise ValueError("Boolean values are not measurements.")
+        return value
+
+    @field_validator("metric", mode="before")
+    @classmethod
+    def metric_name(cls, value):
+        return canonical_metric(str(value))
 
     @model_validator(mode="after")
     def ranges(self):
@@ -124,16 +129,31 @@ class TelemetryService:
     def scope(model, organization_id, facility_id, room_id):
         return (model.organization_id == organization_id, model.facility_id == facility_id, model.room_id == room_id)
 
-    def ingest(self, organization_id, facility_id, room_id, readings, *, actor):
+    def ingest(self, organization_id, facility_id, room_id, readings, *, actor, enrichment=None):
         if not 1 <= len(readings) <= 500:
             raise ValueError("Submit between 1 and 500 observations.")
-        # Validate all rows before opening the transaction, including direct service callers.
-        payloads = [Reading.model_validate(r.model_dump() if isinstance(r, Reading) else r).model_dump() for r in readings]
+        # Adapter context is resolved and stored locally, never injected into the
+        # legacy manual ledger. This service cannot become a scope bypass.
+        if enrichment:
+            raise ValueError("Provider mapping enrichment belongs to the local gateway.")
+        payloads = []
+        for value in readings:
+            validated = Reading.model_validate(value)
+            source_metric, original_value, original_unit = validated._original
+            parsed = validated.model_dump()
+            payloads.append({
+                **parsed,
+                "source_metric": source_metric,
+                "original_value": original_value,
+                "original_unit": original_unit,
+                "raw_reference": "",
+            })
         key = lambda r: (r["source"], r["event_id"], r["metric"], r["device_id"])
         unique = {}
         for row in payloads:
             previous = unique.setdefault(key(row), row)
-            if previous != row:
+            evidence = lambda r: {k: v for k, v in r.items() if k not in {"original_value", "original_unit", "source_metric", "raw_reference"}}
+            if evidence(previous) != evidence(row):
                 raise TelemetryConflict("An event identity has conflicting observations.")
         from sqlalchemy.dialects.postgresql import insert as pg_insert
         from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -152,7 +172,7 @@ class TelemetryService:
                 if identity in unique:
                     actual = {name: getattr(row, name) for name in unique[identity]}
                     actual["observed_at"] = utc(actual["observed_at"])
-                    if actual != unique[identity]:
+                    if evidence(actual) != evidence(unique[identity]):
                         raise TelemetryConflict("An event identity already exists with different evidence.")
             if ids:
                 record_audit_event(session, organization_id=organization_id, facility_id=facility_id,
@@ -195,8 +215,9 @@ class TelemetryService:
                 .group_by(*stream).order_by(*stream).limit(201)).mappings().all()
             stats_map = {}
             for stat in stats:
-                if stat["metric"].startswith("irrigation_"):
-                    trend = {"kind": "event_count" if stat["metric"] == "irrigation_event" else "volume_total",
+                definition = METRIC_REGISTRY.get(stat["metric"])
+                if definition and definition.kind in {"event", "volume", "duration"}:
+                    trend = {"kind": {"event": "event_count", "volume": "volume_total", "duration": "duration_total"}[definition.kind],
                              "count": stat["count"], "total": stat["total"]}
                 else:
                     trend = {"kind": "continuous", **{key: stat[key] for key in ("count", "min", "max", "average")}}
@@ -216,11 +237,15 @@ class TelemetryService:
                 elif target and ((target.minimum is not None and row["value"] < target.minimum) or (target.maximum is not None and row["value"] > target.maximum)):
                     states.append("out_of_range")
                 rows.append({"metric": metric, "source": row["source"], "device_id": row["device_id"], "event_id": row["event_id"], "value": row["value"],
+                    "original": {"metric": row["source_metric"], "value": row["original_value"], "unit": row["original_unit"],
+                        "provenance": "captured" if row["original_value"] is not None and row["original_unit"] is not None and row["source_metric"] is not None else "unavailable_historical"},
                     "unit": row["unit"], "quality": row["quality"], "observed_at": observed.isoformat(), "states": states or ["current"],
                     "trend_24h": stats_map.get((metric, row["source"], row["device_id"])), "target": self.target_payload(target), "stale_minutes": stale_after})
             present = {r["metric"] for r in latest}
             if len(latest) <= 200:
                 for metric, unit in METRICS.items():
+                    if metric not in {"temperature", "relative_humidity", "vpd", "co2", "substrate_vwc", "substrate_ec", "irrigation_event", "irrigation_volume"} and metric not in targets:
+                        continue
                     if metric not in present:
                         rows.append({"metric": metric, "unit": unit, "value": None, "source": "", "device_id": "", "quality": None,
                             "observed_at": None, "states": ["missing"], "trend_24h": None, "target": self.target_payload(targets.get(metric)),

@@ -25,6 +25,7 @@ import "./commerce-storefront.css";
 import "./cowboy-storefront.css";
 import "./commerce-launcher.css";
 import "./offline.css";
+import "./popup-surfaces.css";
 
 declare global {
   interface Window {

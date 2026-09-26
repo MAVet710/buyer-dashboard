@@ -1,0 +1,33 @@
+/* Floating content needs an opaque base. Keep the existing theme palette and
+   leave translucent scrims and ordinary page cards unchanged. */
+:root {
+  --dl-popup-surface: var(--dl-surface-solid, #111412);
+}
+
+.global-search-results,
+.multi-select-menu,
+.multi-select-control[open],
+.commerce-launcher-window {
+  background: var(--dl-popup-surface, var(--dl-surface-solid, #111412));
+  color: var(--dl-text, #F5F7F4);
+}
+
+/* Override the existing important table theme only inside floating surfaces.
+   The faint table token is below normal-text contrast in the light theme. */
+:is(.workspace-window, .modal, .commerce-launcher-window) table th {
+  color: var(--dl-text-soft, #AAB4AC) !important;
+}
+
+:is(.workspace-window, .modal, .commerce-launcher-window) .table-wrap {
+  background: var(--dl-popup-surface, var(--dl-surface-solid, #111412));
+}
+
+/* Existing secondary buttons use a dark translucent fill even in light mode. */
+:is(.workspace-window, .modal, .commerce-launcher-window) .secondary {
+  background: var(--dl-popup-surface, var(--dl-surface-solid, #111412)) !important;
+}
+
+.workspace-window-actions .icon-button,
+:is(.workspace-window, .modal, .commerce-launcher-window) .view-tabs button:not(.active) {
+  color: var(--dl-text-soft, #AAB4AC);
+}

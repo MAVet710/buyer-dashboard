@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type PropsWithChildren } from "react";
 import { KnowledgeLibraryCard } from "../components/KnowledgeLibraryCard";
 import { apiGet, apiPost } from "../lib/api";
+import { CultivationConnections } from "../components/CultivationConnections";
 
 type Configuration = Record<string, string | boolean>;
 type Integration = { configured: boolean; status: string; secret_hint: string; configuration: Configuration; last_validated_at: string | null; last_error: string };
@@ -19,6 +20,7 @@ type AlphaOperatingMode = {
 };
 
 export function IntegrationsPage({ onNavigate, initialProvider }: { onNavigate?: (page: string) => void; initialProvider?: string }) {
+  const [cultivationOpen, setCultivationOpen] = useState(initialProvider === "cultivation" || initialProvider === "growlink");
   const client = useQueryClient();
   const mode = useQuery({ queryKey: ["alpha-operating-mode"], queryFn: ({ signal }) => apiGet<AlphaOperatingMode>("/api/v1/alpha-operating-mode", signal), retry: false });
   const data = useQuery({ queryKey: ["integrations"], queryFn: ({ signal }) => apiGet<Payload>("/api/v1/integrations", signal), retry: false });
@@ -37,6 +39,7 @@ export function IntegrationsPage({ onNavigate, initialProvider }: { onNavigate?:
   const devMode = Boolean(data.data?.doobie || data.data?.ai_runtime || data.data?.spacemail);
   const metrcEnabled = mode.data?.effective_mode === "metrc_sandbox";
   return <div className="page">
+    <section id="integration-growlink"><button className="secondary" aria-expanded={cultivationOpen} onClick={() => setCultivationOpen(value => !value)}>Cultivation integrations</button>{cultivationOpen && <CultivationConnections />}</section>
     {onNavigate && <button className="primary" onClick={() => onNavigate("Integration Wizard")}>Resume Integration Wizard</button>}
     <div className="page-heading"><div><div className="eyebrow">Alpha operating mode</div><h1>Choose how this facility runs</h1><p>Use DoobieLogic by itself during alpha, or opt into the connected Metrc sandbox when you are ready. The selection is facility-specific and can be changed later.</p></div></div>
     {mode.isError ? <div className="state error">{mode.error.message}</div> : null}
