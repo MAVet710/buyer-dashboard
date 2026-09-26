@@ -1,6 +1,7 @@
 """Explicit reviewed historical edge evidence -> canonical Work, never raw replay."""
 from datetime import datetime, timezone
 import hashlib
+import math
 import json
 from urllib.parse import urlencode, quote
 
@@ -28,6 +29,18 @@ def encoded(value):
 
 def digest(value):
     return hashlib.sha256(encoded(value).encode()).hexdigest()
+
+
+def _duration_matches(actual, reported):
+    # Epoch subtraction has sub-microsecond binary rounding; ISO datetimes
+    # have microsecond precision. Never use relative tolerance or round the
+    # authoritative elapsed duration up across a facility threshold.
+    if type(reported) not in (int, float):
+        return False
+    try:
+        return math.isfinite(reported) and math.isclose(actual, reported, rel_tol=0.0, abs_tol=1e-6)
+    except (OverflowError, ValueError):
+        return False
 
 
 def return_route(room, exception, start, end):
@@ -110,7 +123,8 @@ class EdgeWorkService(TelemetryGatewayService):
             connection = json.loads(revision['scope'])['connection_id']
             revisions_by_connection.setdefault(connection, []).append(revision)
         items = []
-        as_of = datetime.now(timezone.utc).isoformat()
+        as_of_time = datetime.now(timezone.utc)
+        as_of = as_of_time.isoformat()
         for stream in summary['streams']:
             if not self._valid_context(room, stream, contexts):
                 continue
@@ -124,7 +138,8 @@ class EdgeWorkService(TelemetryGatewayService):
                 ended = datetime.fromisoformat(deviation['end'])
                 seconds = (ended - began).total_seconds()
                 if (deviation['direction'] not in ('above', 'below') or seconds < threshold
-                    or seconds != deviation['seconds'] or began < start or ended > end
+                    or not _duration_matches(seconds, deviation['seconds'])
+                    or began < start or ended > end or ended > as_of_time
                     or utc(recipe.approved_at) > began
                     or not any(a <= began.timestamp() and b >= ended.timestamp()
                         for a, b in stream['attribution_intervals'])):
