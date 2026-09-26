@@ -406,20 +406,39 @@ def test_stage_reparent_during_target_insertion_must_fail(pg, committed_guard_ro
     source = committed_guard_rows
     with pg.engine.begin() as connection:
         destination = _recipe_rows(connection, source)
-    # Hold a real target insertion open while owner SQL attempts to move its stage.
-    # Parent immutability must win without stage locks or stage UPDATE grants.
-    with pg.engine.connect() as insertion, pg.engine.connect() as reparent:
-        try:
-            insertion.exec_driver_sql("SET LOCAL ROLE doobielogic_render_runtime")
-            insertion.execute(TARGET_INSERT, dict(source, target=str(uuid4())))
-            _assert_immutable(reparent,
-                "UPDATE cultivation_recipe_stages SET recipe_id=:destination WHERE id=:stage",
-                dict(source, destination=destination["recipe"]), "recipe_parent_immutable")
-            insertion.commit()
-            reparent.rollback()
-        finally:
-            insertion.rollback()
-            reparent.rollback()
+    pids = Queue()
+
+    def attempt_reparent():
+        with pg.engine.connect() as connection:
+            try:
+                connection.exec_driver_sql("SET LOCAL statement_timeout='10s'")
+                connection.exec_driver_sql("SET LOCAL lock_timeout='8s'")
+                pids.put(connection.scalar(sa.text("SELECT pg_backend_pid()")))
+                connection.execute(sa.text("UPDATE cultivation_recipe_stages SET recipe_id=:destination WHERE id=:stage"),
+                                   dict(source, destination=destination["recipe"]))
+                connection.commit()
+                return "committed", ""
+            except DBAPIError as error:
+                return getattr(error.orig, "sqlstate", None), error.orig.diag.message_primary
+            finally:
+                connection.rollback()
+
+    # The target FK holds a key-share stage lock until its transaction completes.
+    # Reparenting must wait for that real lock, then fail the immutable-parent
+    # trigger. A lock timeout alone does not prove the final mutation is rejected.
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        with pg.engine.connect() as insertion:
+            try:
+                insertion.exec_driver_sql("SET LOCAL ROLE doobielogic_render_runtime")
+                blocker = insertion.scalar(sa.text("SELECT pg_backend_pid()"))
+                insertion.execute(TARGET_INSERT, dict(source, target=str(uuid4())))
+                future = executor.submit(attempt_reparent)
+                _wait_for_block(pg, future, pids.get(timeout=5), blocker)
+                insertion.commit()
+                state, message = future.result(timeout=12)
+                assert state == "P0001" and message == "recipe_parent_immutable"
+            finally:
+                insertion.rollback()
     assert pg.scalar(sa.text("SELECT recipe_id FROM cultivation_recipe_stages WHERE id=:stage"), source) == source["recipe"]
     with pg.engine.begin() as connection:
         connection.exec_driver_sql("SET LOCAL ROLE doobielogic_render_runtime")

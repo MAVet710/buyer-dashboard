@@ -179,7 +179,7 @@ test.describe("strict real-stack operator alpha", () => {
     await prepare(page, "/cultivation");
     await page.goto("/cultivation", { waitUntil: "domcontentloaded" });
 
-    await expect(page.getByRole("heading", { name: "Cultivation" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Cultivation", level: 1, exact: true })).toBeVisible();
     const selectAll = page.getByLabel("Select all visible plants");
     await expect(selectAll).toBeVisible();
     await selectAll.check();
