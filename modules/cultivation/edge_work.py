@@ -17,6 +17,7 @@ from .gateway import TelemetryGatewayService, WindowInput, configured_edge
 from .intelligence_models import (TelemetryConnection, CultivationDevice, CultivationSensor,
     DeviceMapping, CropCycle, CultivationRecipe, CultivationRecipeStage, CultivationRecipeTarget)
 from .models import CultivationRoom
+from .edge_store import Scope
 from .telemetry import TelemetryConflict, utc
 
 ENTITY = 'cultivation_edge_exception'
@@ -54,17 +55,30 @@ class EdgeWorkService(TelemetryGatewayService):
             self._edge = configured_edge(self._path, read_only=True)
         return self._edge
 
-    def _revisions(self, start, end):
-        """Bounded metadata only. Dirty buckets must not silently vanish from summary.
+    def _revisions(self, session, room, start, end):
+        """Only this room's canonical feeds can invalidate its reviewed evidence.
 
-        Adapter to the existing local schema, owned by EdgeStore. No raw reads,
-        recalculation, ack or local writes occur here.
+        Discover all historical room mappings in one bounded scoped query. Do not
+        filter revoked feeds out: their historical evidence still matters to this
+        room. A shared feed remains conservatively blocked while its bucket is dirty.
+        No raw reads, recalculation, acknowledgement or local writes occur here.
         """
+        identities = session.scalars(select(CultivationDevice.connection_id).join(
+            DeviceMapping, DeviceMapping.device_id == CultivationDevice.id).where(
+                *self.scope(CultivationDevice), *self.scope(DeviceMapping),
+                DeviceMapping.room_id == room).distinct().order_by(
+                    CultivationDevice.connection_id).limit(MAX_ITEMS + 1)).all()
+        if len(identities) > MAX_ITEMS:
+            return None
+        if not identities:
+            return []
+        scopes = [Scope(self.org, self.facility, identity).key for identity in identities]
+        marks = ','.join('?' for _ in scopes)
         edge = self.edge()
         with edge._db() as db:
             rows = db.execute("SELECT key,revision,dirty,scope,start,COALESCE(json_extract(payload,'$.calculation_version'),0) AS calculation_version FROM buckets WHERE org=? AND facility=? "
-                'AND start>=? AND start<? ORDER BY key LIMIT ?',
-                (self.org, self.facility, start.timestamp(), end.timestamp(), edge.max_query_rows + 1)).fetchall()
+                f'AND scope IN ({marks}) AND start>=? AND start<? ORDER BY key LIMIT ?',
+                (self.org, self.facility, *scopes, start.timestamp(), end.timestamp(), edge.max_query_rows + 1)).fetchall()
         if len(rows) > edge.max_query_rows or any(r['dirty'] or r['calculation_version'] < 3 for r in rows):
             return None
         return [dict(key=r['key'], revision=r['revision'], scope=r['scope'], start=r['start']) for r in rows]
@@ -108,11 +122,11 @@ class EdgeWorkService(TelemetryGatewayService):
             and target.unit == entry['unit'])
 
     def _candidates(self, session, room, start, end):
-        before = self._revisions(start, end)
+        before = self._revisions(session, room, start, end)
         if before is None:
             return [], True
         summary = self._summary(room, start, end)
-        if summary['truncated'] or before != self._revisions(start, end):
+        if summary['truncated'] or before != self._revisions(session, room, start, end):
             return [], True
         contexts = self._contexts(session, summary['streams'])
         if contexts is None:
@@ -221,7 +235,7 @@ class EdgeWorkService(TelemetryGatewayService):
             existing = self._work(session, [exception_id]).get(exception_id)
             # Last local observation before central mutation. This is deliberately
             # not presented as a distributed transaction or a lock on the collector.
-            revisions = self._revisions(start, end)
+            revisions = self._revisions(session, room_id, start, end)
             if revisions is None or digest(revisions) != evidence['rollup_revision']:
                 raise TelemetryConflict('Deviation evidence changed; refresh the selected window.')
             if existing:
