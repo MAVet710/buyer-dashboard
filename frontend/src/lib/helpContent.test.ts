@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { helpArticleByPath, helpArticles, helpCategories, helpSearch } from "./helpContent";
@@ -21,13 +22,19 @@ describe("DoobieLogic Help Center content contract", () => {
     }
   });
 
-  it("uses committed real-workspace capture assets for every guide", () => {
+  it("uses a genuinely different real-workspace capture for every guide", () => {
+    const screenshots = helpArticles.map(article => article.screenshot);
+    const digests = new Set<string>();
+    expect(new Set(screenshots).size).toBe(helpArticles.length);
     for (const article of helpArticles) {
       expect(article.screenshot).toMatch(/^\/help\/screens\/[a-z0-9-]+-guide\.webp$/);
       const file = new URL(`../../public${article.screenshot}`, import.meta.url);
       expect(existsSync(file)).toBe(true);
-      expect(readFileSync(file).length).toBeGreaterThan(10_000);
+      const bytes = readFileSync(file);
+      expect(bytes.length).toBeGreaterThan(10_000);
+      digests.add(createHash("sha256").update(bytes).digest("hex"));
     }
+    expect(digests.size).toBe(helpArticles.length);
   });
 
   it("searches across titles, tasks, navigation, and step text", () => {
