@@ -309,7 +309,7 @@ def test_crm_to_white_label_chain_and_empty_rollback_preserve_crm(setup):
     from sqlalchemy import inspect
     from modules.repack.models import WhiteLabelPlan
     scripts = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert scripts.get_heads() == ["0083_onboarding_reporting"]
+    assert scripts.get_heads() == ["0084_wholesale_logistics"]
     revision = scripts.get_revision("0082_white_label_execution")
     assert revision.down_revision == "0081_wholesale_crm"
     assert scripts.get_revision(revision.down_revision).down_revision == "0080_doobie_work"

@@ -14,6 +14,7 @@ from sqlalchemy import create_engine, event, func, inspect, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
+from modules.coman.permissions import AppUserPermissionOverride
 from backend.app.auth import RequestContext, get_request_context
 from backend.app.database import get_engine
 from backend.app.routers.work import router
@@ -30,7 +31,7 @@ def setup():
     @event.listens_for(engine, "connect")
     def foreign_keys(connection, _):
         connection.execute("PRAGMA foreign_keys=ON")
-    tables = [Organization, Facility, AppUser, AppUserFacilityRole, AuditEvent, WorkTemplate, WorkItem]
+    tables = [AppUserPermissionOverride, Organization, Facility, AppUser, AppUserFacilityRole, AuditEvent, WorkTemplate, WorkItem]
     Base.metadata.create_all(engine, tables=[m.__table__ for m in tables])
     with Session(engine) as session, session.begin():
         session.add_all([Organization(id="org", name="Work", slug="work"), Organization(id="other", name="Other", slug="other")])
@@ -296,3 +297,24 @@ def test_postgresql_migration_ddl_protects_browser_access():
     assert "GRANT SELECT, INSERT, UPDATE ON TABLE" in sql
     assert "GRANT SELECT, INSERT, UPDATE, DELETE" not in sql
     assert migration.down_revision == "0079_security_observation"
+
+
+def test_work_creation_override_preserves_role_gate(setup):
+    engine, context, service = setup
+    template = service.create(TemplateCreate(title="Recurring", frequency="daily", starts_at=NOW), template=True)
+    with Session(engine) as session, session.begin():
+        override = AppUserPermissionOverride(user_id=context.user_id, organization_id=context.organization_id,
+            facility_id=context.facility_id, permission="work.create", effect="deny", created_by="test", updated_by="test")
+        session.add(override)
+    for operation in [lambda: service.create(WorkCreate(title="Denied")), lambda: service.generate(NOW)]:
+        with pytest.raises(HTTPException) as error:
+            operation()
+        assert error.value.status_code == 403
+    with Session(engine) as session, session.begin():
+        session.scalar(select(AppUserPermissionOverride)).effect = "allow"
+    assert service.create(WorkCreate(title="Allowed"))["id"]
+    reader = WorkService(engine, replace(context, role="read_only"))
+    with pytest.raises(HTTPException) as error:
+        reader.create(WorkCreate(title="Role still required"))
+    assert error.value.status_code == 403
+    assert template["id"]

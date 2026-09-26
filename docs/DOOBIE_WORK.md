@@ -66,3 +66,7 @@ Integration validation:
 - Optional legacy suites `test_ux_cohesion_sandbox_parity.py`, `test_buyer_intelligence_output_contract.py` and `test_workspace_shell.py` could not collect because Streamlit is not installed in either local Python runtime. Assertions were not changed or skipped inside those suites.
 
 Status: `CODE_READY` for this local integration scope. No push, merge, PR, deployment, hosting change or database migration was performed. PostgreSQL migration execution and authenticated public acceptance remain release gates outside this task's explicit no-deploy scope.
+
+## Logistics integration permission update
+
+The 0084 logistics integration adds `work.create` to the generalized permission registry with exactly the existing Work writer defaults. Explicit denial now blocks item/template creation and recurrence generation; allow overrides do not bypass the existing writer role gate. Supplied transaction sessions are reused for permission reads and creation, preserving atomic linked-domain writes. Dispatch uses this canonical service for explicit reconciliation Work and keeps only a nullable pointer. The integration head is `0084_wholesale_logistics`, following `0083_onboarding_reporting`.

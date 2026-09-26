@@ -47,11 +47,11 @@ def validate_assignee(session, context, user_id):
         raise HTTPException(422, "Assignee must be an active work-capable user in this facility.")
 
 
-def audit(session, context, row, action, before=None):
+def audit(session, context, row, action, before=None, *, correlation_id=None):
     record_audit_event(session, organization_id=context.organization_id, facility_id=context.facility_id,
                        entity_type="work_template" if isinstance(row, WorkTemplate) else "work_item",
                        entity_id=row.id, action=action, actor=context.user_id, source="api",
-                       correlation_id=row.id, before=before, after=snapshot(row))
+                       correlation_id=correlation_id or row.id, before=before, after=snapshot(row))
 
 
 def occurrence(starts_at, frequency, index):
@@ -117,8 +117,10 @@ class WorkService:
             raise HTTPException(404, "Work was not found in this facility.")
         return row
 
-    def create(self, payload, template=False, *, session=None):
+    def create(self, payload, template=False, *, session=None, correlation_id=None):
         require_write(self.context)
+        from ..permissions import require_permission
+        require_permission(self.context, self.engine, "work.create", session=session)
         values = payload.model_dump()
         if template:
             for key in ("due_at", "notes", "evidence"):
@@ -131,7 +133,7 @@ class WorkService:
                     created_by=self.context.user_id)
             session.add(row)
             session.flush()
-            audit(session, self.context, row, "created")
+            audit(session, self.context, row, "created", correlation_id=correlation_id)
             return snapshot(row)
 
     def update(self, work_id, payload, template=False):
@@ -176,6 +178,8 @@ class WorkService:
     def generate(self, now=None):
         """Bounded catch-up, safely repeatable after a lost response or interruption."""
         require_write(self.context)
+        from ..permissions import require_permission
+        require_permission(self.context, self.engine, "work.create")
         now = utc(now or utc_now())
         generated = 0
         with Session(self.engine) as session, session.begin():
