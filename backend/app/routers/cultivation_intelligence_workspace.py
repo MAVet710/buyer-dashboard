@@ -1,5 +1,5 @@
 """Strict authenticated HTTP boundary for cultivation intelligence."""
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from datetime import datetime
 from sqlalchemy import Engine
 from sqlalchemy.exc import IntegrityError
@@ -11,11 +11,26 @@ from modules.cultivation.gateway import TelemetryGatewayService, ImportPreview, 
 from modules.cultivation.intelligence_service import OccupancyCloseInput, ZoneInput
 from ..auth import RequestContext, get_request_context
 from ..database import get_engine
+from modules.cultivation.ingress import IngressGrantService, GrantInput
 
 router=APIRouter(prefix='/cultivation-intelligence',tags=['cultivation'])
 
 def service(context:RequestContext=Depends(get_request_context),engine:Engine=Depends(get_engine)):
     return TelemetryGatewayService(engine,context)
+
+def grant_service(context:RequestContext=Depends(get_request_context),engine:Engine=Depends(get_engine)):
+    return IngressGrantService(engine,context)
+
+@router.get('/connections/{identity}/ingress-grants')
+def grants(identity:str,s=Depends(grant_service)):return call(s,'grants',identity)
+
+@router.post('/connections/{identity}/ingress-grants')
+def issue_grant(identity:str,payload:GrantInput,response:Response,s=Depends(grant_service)):
+    response.headers['Cache-Control']='no-store'
+    return call(s,'issue_grant',identity,payload)
+
+@router.post('/connections/{identity}/ingress-grants/{grant_id}/revoke')
+def revoke_grant(identity:str,grant_id:str,payload:VersionInput,s=Depends(grant_service)):return call(s,'revoke_grant',identity,grant_id,payload)
 
 def call(s,method,*args):
     try:return getattr(s,method)(*args)

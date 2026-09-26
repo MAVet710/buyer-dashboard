@@ -75,6 +75,19 @@ jobs:
             if [ "$READY" -ne 1 ]; then cat /tmp/cultivation-fixture.log /tmp/popup-fixture.log; exit 1; fi
           done
           pnpm exec playwright test --config=playwright.config.ts e2e/cultivation-intelligence.spec.ts e2e/popup-readability.spec.ts
+      - name: Normalized cultivation push setup acceptance
+        run: |
+          set -euo pipefail
+          pnpm exec vite --config e2e/fixtures/cultivation-push.config.ts --host 127.0.0.1 --port 4195 --strictPort > /tmp/cultivation-push-fixture.log 2>&1 &
+          PUSH_PID=$!
+          trap 'kill "$PUSH_PID" 2>/dev/null || true' EXIT
+          READY=0
+          for attempt in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:4195/e2e/fixtures/cultivation-push.html > /dev/null; then READY=1; break; fi
+            sleep 1
+          done
+          if [ "$READY" -ne 1 ]; then cat /tmp/cultivation-push-fixture.log; exit 1; fi
+          pnpm exec playwright test --config e2e/fixtures/cultivation-push.playwright.config.ts
       - name: Upload cultivation and popup acceptance evidence
         if: always()
         uses: actions/upload-artifact@v4

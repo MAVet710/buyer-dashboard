@@ -129,7 +129,13 @@ class EventInput(TimedInput):
 class ConnectionInput(Input):
     provider: Literal['json','csv','growlink']
     label: str = Field(min_length=1,max_length=160)
-    mode: Literal['file'] = 'file'
+    mode: Literal['file','push'] = 'file'
+    expected_interval_seconds: int | None = Field(default=None,ge=1,le=2678400,strict=True)
+    stale_after_seconds: int | None = Field(default=None,ge=1,le=2678400,strict=True)
+    @model_validator(mode='after')
+    def transport(self):
+        if self.mode=='push' and self.provider!='json':raise ValueError('Push requires normalized JSON.')
+        return self
 
 class DeviceInput(VersionInput):
     source_device_id: str = Field(min_length=1,max_length=120,pattern=r'^[A-Za-z0-9_.:@-]+$')
@@ -164,7 +170,7 @@ def room_payload(row):
     return fields(row,'id room_code display_name phase active plant_capacity')
 
 def connection_payload(row):
-    return {**fields(row,'id provider label mode status version revoked_at'), 'live_supported':False}
+    return {**fields(row,'id provider label mode status version revoked_at expected_interval_seconds stale_after_seconds'), 'live_supported':False}
 
 
 def target_payload(row):

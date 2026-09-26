@@ -7,7 +7,7 @@ import { useState } from "react";
 export function ZoneSelect({ roomId }: { roomId: string }) {
   const query = useIntelligence<{ zones: Zone[]; truncated: boolean }>(`/rooms/${encodeURIComponent(roomId)}/zones`, Boolean(roomId));
   if (!roomId) return <p>Choose a room before selecting a zone.</p>;
-  return <ReadState query={query}>{data => <><label>Zone (optional)<select name="zone_id" defaultValue=""><option value="">Whole room / no zone</option>{data.zones.filter(zone => zone.active).map(zone => <option key={zone.id} value={zone.id}>{zone.display_name || zone.zone_code}</option>)}</select></label>{data.truncated && <p>Zone choices are incomplete.</p>}</>}</ReadState>;
+  return <ReadState query={query}>{data => <><label>Zone (optional)<select name="zone_id" defaultValue=""><option value="">No zone assigned</option>{data.zones.filter(zone => zone.active).map(zone => <option key={zone.id} value={zone.id}>{zone.display_name || zone.zone_code}</option>)}</select></label>{data.truncated && <p>Zone choices are incomplete.</p>}</>}</ReadState>;
 }
 export function AggregateWindow({ onApply }: { onApply: (query: string) => void }) {
   const [error, setError] = useState("");

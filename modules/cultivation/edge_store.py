@@ -115,9 +115,11 @@ class EdgeStore:
     def __init__(self, path, *, max_scope_rows=100000, max_scope_bytes=134217728,
                  max_disk_bytes=536870912, max_batch=500, max_query_rows=10000,
                  max_gap_seconds=300, bucket_seconds=3600,
-                 max_window_seconds=2678400, busy_timeout_ms=5000):
+                 max_window_seconds=2678400, busy_timeout_ms=5000,
+                 max_rollup_rows=100000, max_rollup_streams=1000):
         for value in (max_scope_rows, max_scope_bytes, max_disk_bytes, max_batch,
-                      max_query_rows, max_gap_seconds, bucket_seconds, max_window_seconds, busy_timeout_ms):
+                      max_query_rows, max_gap_seconds, bucket_seconds, max_window_seconds, busy_timeout_ms,
+                      max_rollup_rows, max_rollup_streams):
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
                 raise EdgeError("invalid_limit")
         if max_gap_seconds > 86400 or bucket_seconds > 86400 or max_window_seconds > 2678400:
@@ -128,6 +130,7 @@ class EdgeStore:
         self.max_query_rows, self.max_gap_seconds = max_query_rows, max_gap_seconds
         self.bucket_seconds, self.max_window_seconds = bucket_seconds, max_window_seconds
         self.busy_timeout_ms = busy_timeout_ms
+        self.max_rollup_rows, self.max_rollup_streams = max_rollup_rows, max_rollup_streams
         with self._db() as db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS edge_config (id INTEGER PRIMARY KEY CHECK(id=1), config TEXT NOT NULL);
@@ -149,6 +152,18 @@ class EdgeStore:
                     ack INTEGER NOT NULL DEFAULT 0, purged INTEGER NOT NULL DEFAULT 0,
                     PRIMARY KEY(scope,start), UNIQUE(scope,key));
                 CREATE INDEX IF NOT EXISTS edge_rooms ON buckets(org,facility,start);
+                CREATE INDEX IF NOT EXISTS edge_stream_time ON evidence(scope,stream,observed,identity,fingerprint);
+                CREATE TABLE IF NOT EXISTS edge_transport (
+                    scope TEXT PRIMARY KEY, last_committed_at TEXT, last_batch_id TEXT, last_grant_id TEXT,
+                    accepted_total INTEGER NOT NULL, duplicate_total INTEGER NOT NULL,
+                    pending_total INTEGER NOT NULL, quarantined_total INTEGER NOT NULL, conflict_total INTEGER NOT NULL);
+                CREATE TABLE IF NOT EXISTS edge_maintenance (
+                    scope TEXT NOT NULL, task TEXT NOT NULL, identity TEXT NOT NULL, fingerprint TEXT NOT NULL,
+                    PRIMARY KEY(scope,task));
+                CREATE TABLE IF NOT EXISTS edge_capacity_sample (
+                    scope TEXT PRIMARY KEY, first_at REAL NOT NULL, last_at REAL NOT NULL,
+                    first_rows INTEGER NOT NULL, first_bytes INTEGER NOT NULL,
+                    last_rows INTEGER NOT NULL, last_bytes INTEGER NOT NULL);
             """)
             config = _json({"schema": 1, "bucket_seconds": bucket_seconds, "max_gap_seconds": max_gap_seconds})
             db.execute("INSERT OR IGNORE INTO edge_config VALUES(1,?)", (config,))
@@ -158,6 +173,7 @@ class EdgeStore:
         # repaired evidence. Purged buckets remain blocked, never reconstructed
         # from incomplete history. Preserve their revision generation.
         with self._db(write=True) as db:
+            self._initialize_usage(db)
             db.execute("UPDATE buckets SET dirty=1,ack=0 WHERE COALESCE(json_extract(payload,'$.calculation_version'),0)<3")
 
     @contextmanager
@@ -167,8 +183,11 @@ class EdgeStore:
             db = sqlite3.connect(self.path, timeout=self.busy_timeout_ms / 1000, isolation_level=None)
             db.row_factory = sqlite3.Row
             db.execute(f"PRAGMA busy_timeout={self.busy_timeout_ms}")
-            db.execute("PRAGMA journal_mode=WAL")
+            if db.execute("PRAGMA journal_mode=WAL").fetchone()[0].lower() != "wal":
+                raise EdgeBackpressure("wal_required")
             db.execute("PRAGMA synchronous=FULL")
+            if db.execute("PRAGMA synchronous").fetchone()[0] != 2:
+                raise EdgeBackpressure("full_durability_required")
             db.execute("PRAGMA secure_delete=ON")
             db.execute("PRAGMA wal_autocheckpoint=64")
             db.execute("BEGIN IMMEDIATE" if write else "BEGIN")
@@ -197,20 +216,65 @@ class EdgeStore:
             raise EdgeError("invalid_limit")
         return limit
 
-    def _usage(self, db, scope):
+    def _recount_usage(self, db, scope):
         a = db.execute("SELECT COUNT(*), COALESCE(SUM(COALESCE(LENGTH(CAST(raw AS BLOB)),0)+1024+LENGTH(CAST(scope||identity||fingerprint||stream AS BLOB))+COALESCE(LENGTH(CAST(snapshot AS BLOB)),0)+COALESCE(LENGTH(CAST(canonical AS BLOB)),0)),0) FROM evidence WHERE scope=?", (scope,)).fetchone()
         b = db.execute("SELECT COUNT(*), COALESCE(SUM(LENGTH(CAST(payload||scope||org||facility||key||revision AS BLOB))+1024),0) FROM buckets WHERE scope=?", (scope,)).fetchone()
         return a[0] + b[0], a[1] + b[1]
+
+    def _initialize_usage(self, db):
+        # Schema marker, initial reconciliation and triggers commit atomically.
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='edge_usage'").fetchone():
+            return
+        db.execute("CREATE TABLE edge_usage(scope TEXT PRIMARY KEY, rows INTEGER NOT NULL, bytes INTEGER NOT NULL)")
+        expressions = {
+            "evidence": "COALESCE(LENGTH(CAST({p}raw AS BLOB)),0)+1024+LENGTH(CAST({p}scope||{p}identity||{p}fingerprint||{p}stream AS BLOB))+COALESCE(LENGTH(CAST({p}snapshot AS BLOB)),0)+COALESCE(LENGTH(CAST({p}canonical AS BLOB)),0)",
+            "buckets": "LENGTH(CAST({p}payload||{p}scope||{p}org||{p}facility||{p}key||{p}revision AS BLOB))+1024",
+        }
+        for table, expression in expressions.items():
+            db.execute(f"INSERT INTO edge_usage SELECT scope,COUNT(*),SUM({expression.format(p='')}) FROM {table} GROUP BY scope ON CONFLICT(scope) DO UPDATE SET rows=rows+excluded.rows,bytes=bytes+excluded.bytes")
+            new, old = expression.format(p="NEW."), expression.format(p="OLD.")
+            add = f"INSERT INTO edge_usage VALUES(NEW.scope,1,{new}) ON CONFLICT(scope) DO UPDATE SET rows=rows+1,bytes=bytes+excluded.bytes;"
+            remove = f"UPDATE edge_usage SET rows=rows-1,bytes=bytes-({old}) WHERE scope=OLD.scope;"
+            for operation, statements in (("INSERT", add), ("DELETE", remove), ("UPDATE", remove + add)):
+                db.execute(f"CREATE TRIGGER edge_usage_{table}_{operation.lower()} AFTER {operation} ON {table} BEGIN {statements} END")
+
+    def _usage(self, db, scope):
+        row = db.execute("SELECT rows,bytes FROM edge_usage WHERE scope=?", (scope,)).fetchone()
+        return tuple(row) if row else (0, 0)
+
+    def _maintenance_page(self, db, scope, task, predicate, args, limit):
+        cursor = db.execute("SELECT identity,fingerprint FROM edge_maintenance WHERE scope=? AND task=?", (scope, task)).fetchone()
+        after = tuple(cursor) if cursor else ("", "")
+        rows = db.execute(f"SELECT * FROM evidence WHERE scope=? AND {predicate} AND (identity,fingerprint)>(?,?) ORDER BY identity,fingerprint LIMIT ?", (scope, *args, *after, limit + 1)).fetchall()
+        if not rows and cursor:
+            rows = db.execute(f"SELECT * FROM evidence WHERE scope=? AND {predicate} ORDER BY identity,fingerprint LIMIT ?", (scope, *args, limit + 1)).fetchall()
+        return rows
+
+    def _advance_maintenance(self, db, scope, task, rows, limit):
+        if rows:
+            last = rows[min(len(rows), limit)-1]
+            db.execute("INSERT INTO edge_maintenance VALUES(?,?,?,?) ON CONFLICT(scope,task) DO UPDATE SET identity=excluded.identity,fingerprint=excluded.fingerprint", (scope, task, last["identity"], last["fingerprint"]))
 
     def _quota(self, db, scope):
         rows, size = self._usage(db, scope)
         if rows > self.max_scope_rows or size > self.max_scope_bytes:
             raise EdgeBackpressure("scope_capacity_reached")
-        physical = sum(p.stat().st_size for p in (self.path, Path(str(self.path) + "-wal"), Path(str(self.path) + "-shm")) if p.exists())
+        physical = self._physical_size()
         pages = db.execute("PRAGMA page_count").fetchone()[0] * db.execute("PRAGMA page_size").fetchone()[0]
         # Reserve the whole transaction's possible WAL image before committing.
         if physical + pages > self.max_disk_bytes:
             raise EdgeBackpressure("disk_capacity_reached")
+
+    def _physical_size(self):
+        size = 0
+        for path in (self.path, Path(str(self.path)+"-wal"), Path(str(self.path)+"-shm")):
+            try:
+                size += path.stat().st_size
+            except FileNotFoundError:
+                # A closing concurrent connection can remove WAL/SHM.
+                if path == self.path:
+                    raise
+        return size
 
     def _raw(self, reading):
         if is_dataclass(reading):
@@ -297,8 +361,12 @@ class EdgeStore:
         if observed is not None:
             db.execute("UPDATE buckets SET dirty=1,ack=0 WHERE scope=? AND start < ? AND start+? > ?", (scope, observed + self.max_gap_seconds, self.bucket_seconds, observed - self.max_gap_seconds))
 
-    def ingest(self, scope, readings, resolved=None):
+    def ingest(self, scope, readings, resolved=None, transport=None):
         sk = self._scope(scope)
+        if transport is not None:
+            if not isinstance(transport, dict) or set(transport) != {"batch_id", "grant_id"}:
+                raise EdgeError("invalid_transport")
+            transport = {key: _token(value) for key, value in transport.items()}
         if not isinstance(readings, (list, tuple)) or len(readings) > self.max_batch:
             raise EdgeBackpressure("batch_limit")
         if resolved is not None and (not isinstance(resolved, (list, tuple)) or len(resolved) != len(readings)):
@@ -333,23 +401,55 @@ class EdgeStore:
                 db.execute("INSERT INTO evidence VALUES(?,?,?,?,?,?,?,?,?,?,?)", (sk, identity, fingerprint, _json(raw), observed, datetime.now(timezone.utc).timestamp(), _json(parts[:2]), _json(snap) if snap else None, _json(canonical) if canonical else None, state, reason))
                 self._dirty(db, sk, observed)
                 result["items"].append(dict(identity=identity, status=state, reason=reason))
+            if transport is not None:
+                db.execute("""INSERT INTO edge_transport VALUES(?,?,?,?,?,?,?,?,?)
+                    ON CONFLICT(scope) DO UPDATE SET last_committed_at=excluded.last_committed_at,
+                    last_batch_id=excluded.last_batch_id,last_grant_id=excluded.last_grant_id,
+                    accepted_total=accepted_total+excluded.accepted_total,
+                    duplicate_total=duplicate_total+excluded.duplicate_total,
+                    pending_total=pending_total+excluded.pending_total,
+                    quarantined_total=quarantined_total+excluded.quarantined_total,
+                    conflict_total=conflict_total+excluded.conflict_total""",
+                    (sk, datetime.now(timezone.utc).isoformat(), transport["batch_id"], transport["grant_id"],
+                     result["accepted"], result["duplicates"], result["pending"], result["quarantined"], result["conflicts"]))
+            if result["accepted"] + result["pending"] + result["quarantined"] + result["conflicts"]:
+                count, size = self._usage(db, sk)
+                at = datetime.now(timezone.utc).timestamp()
+                db.execute("""INSERT INTO edge_capacity_sample VALUES(?,?,?,?,?,?,?)
+                    ON CONFLICT(scope) DO UPDATE SET last_at=excluded.last_at,
+                    last_rows=excluded.last_rows,last_bytes=excluded.last_bytes""",
+                    (sk, at, at, count, size, count, size))
             self._quota(db, sk)
         result["committed"] = True
         return result
 
+    def transport_status(self, scope):
+        sk = self._scope(scope)
+        fields = ("last_committed_at", "last_batch_id", "accepted_total", "duplicate_total", "pending_total", "quarantined_total", "conflict_total")
+        with self._db() as db:
+            row = db.execute("SELECT " + ",".join(fields) + " FROM edge_transport WHERE scope=?", (sk,)).fetchone()
+        return dict(zip(fields, tuple(row) if row else (None, None, 0, 0, 0, 0, 0)))
+
     def retry_pending(self, scope, resolver, limit=100):
         sk, limit = self._scope(scope), self._limit(limit)
         result = dict(resolved=0, pending=0, examined=0, truncated=False)
+        with self._db() as db:
+            rows = self._maintenance_page(db, sk, "pending", "(state='pending' OR (state='quarantined' AND reason='invalid_mapping_or_measurement'))", (), limit)
+        # Resolve outside SQLite transactions: a resolver may consult the
+        # authorized control plane. Recheck evidence under the write lock.
+        supplied_rows = [json.loads(row["snapshot"]) if row["snapshot"] else resolver(scope, json.loads(row["raw"])) for row in rows[:limit]]
         with self._db(write=True) as db:
-            rows = db.execute("SELECT * FROM evidence WHERE scope=? AND (state='pending' OR (state='quarantined' AND reason='invalid_mapping_or_measurement')) ORDER BY identity LIMIT ?", (sk, limit + 1)).fetchall()
             result["truncated"] = len(rows) > limit
-            for row in rows[:limit]:
+            self._advance_maintenance(db, sk, "pending", rows, limit)
+            for row, supplied in zip(rows[:limit], supplied_rows):
+                current = db.execute("SELECT state,snapshot,reason FROM evidence WHERE scope=? AND identity=? AND fingerprint=?", (sk, row["identity"], row["fingerprint"])).fetchone()
+                if current is None or tuple(current) != (row["state"], row["snapshot"], row["reason"]):
+                    continue
                 raw = json.loads(row["raw"])
                 if db.execute("SELECT 1 FROM buckets WHERE scope=? AND purged=1 AND start<? AND start+?>? LIMIT 1", (sk, row["observed"] + self.max_gap_seconds, self.bucket_seconds, row["observed"] - self.max_gap_seconds)).fetchone():
                     result["examined"] += 1
                     result["pending"] += 1
                     continue
-                supplied = json.loads(row["snapshot"]) if row["snapshot"] else resolver(scope, raw)
                 snap, canonical, reason = self._resolve(scope, raw, row["observed"], supplied)
                 result["examined"] += 1
                 if reason:
@@ -376,7 +476,31 @@ class EdgeStore:
             counts = {row[0]: row[1] for row in db.execute("SELECT state,COUNT(*) FROM evidence WHERE scope=? GROUP BY state", (sk,))}
             times = db.execute("SELECT MAX(received), MAX(CASE WHEN state IN ('ready','archived') THEN observed END) FROM evidence WHERE scope=?", (sk,)).fetchone()
             rows, size = self._usage(db, sk)
-        return dict(counts=counts, scope_rows=rows, scope_bytes=size, limits={"rows": self.max_scope_rows, "bytes": self.max_scope_bytes}, raw_stays_local=True,
+            sample = db.execute("SELECT * FROM edge_capacity_sample WHERE scope=?", (sk,)).fetchone()
+            pages = db.execute("PRAGMA page_count").fetchone()[0] * db.execute("PRAGMA page_size").fetchone()[0]
+        physical = self._physical_size()
+        ratios = {"rows": rows/self.max_scope_rows, "bytes": size/self.max_scope_bytes, "disk_reservation": (physical+pages)/self.max_disk_bytes}
+        limiting = max(ratios, key=ratios.get)
+        pressure = ratios[limiting]
+        capacity = dict(state="full" if pressure >= 1 else "critical" if pressure >= .9 else "warning" if pressure >= .7 else "available",
+            limiting_resource=limiting, physical_bytes=physical, disk_reservation_bytes=physical+pages,
+            headroom_rows=max(0, self.max_scope_rows-rows), headroom_bytes=max(0, self.max_scope_bytes-size),
+            disk_reservation_headroom_bytes=max(0, self.max_disk_bytes-physical-pages),
+            projected_headroom_seconds=None, projection_status="unknown", replay_horizon="identity_evidence_retained_until_capacity",
+            action="retain_source_backlog_and_review_capacity" if pressure >= .7 else "monitor")
+        # A receipt-growth estimate, never a configured/assumed device cadence.
+        # Do not extrapolate a short import burst, clock reversal, shrinking
+        # storage, or a capture interval whose last receipt is stale.
+        now = datetime.now(timezone.utc).timestamp()
+        if sample and sample["last_at"]-sample["first_at"] >= 3600 and 0 <= now-sample["last_at"] <= 3600:
+            elapsed = sample["last_at"]-sample["first_at"]
+            row_growth, byte_growth = sample["last_rows"]-sample["first_rows"], sample["last_bytes"]-sample["first_bytes"]
+            if row_growth >= 100 and byte_growth > 0:
+                capacity.update(projected_headroom_seconds=min(capacity["headroom_rows"]*elapsed/row_growth, capacity["headroom_bytes"]*elapsed/byte_growth),
+                    projection_status="observed_receipt_growth_scope_only", projection_interval_seconds=elapsed)
+                if capacity["projected_headroom_seconds"] < 172800 and capacity["state"] == "available":
+                    capacity.update(state="warning", action="retain_source_backlog_and_review_capacity")
+        return dict(counts=counts, scope_rows=rows, scope_bytes=size, limits={"rows": self.max_scope_rows, "bytes": self.max_scope_bytes, "disk_bytes": self.max_disk_bytes}, capacity=capacity, raw_stays_local=True,
                     last_received_at=_iso(times[0]) if times[0] is not None else None,
                     last_valid_observed_at=_iso(times[1]) if times[1] is not None else None)
 
@@ -516,8 +640,15 @@ class EdgeStore:
         if (end-start) / self.bucket_seconds > self.max_batch:
             return dict(result, truncated=True)
         with self._db(write=True) as db:
-            rows = db.execute("SELECT * FROM evidence WHERE scope=? AND observed>=? AND observed<? ORDER BY observed,identity,fingerprint LIMIT ?", (sk, start - self.max_gap_seconds, end + self.max_gap_seconds, self.max_query_rows + 1)).fetchall()
-            if len(rows) > self.max_query_rows:
+            # Preflight a bounded indexed window before publishing any bucket.
+            # SQL reads at most work-budget+1 keys; Python holds only counts.
+            streams = db.execute("""SELECT stream,COUNT(*) AS n FROM
+                (SELECT stream FROM evidence WHERE scope=? AND observed>=? AND observed<? LIMIT ?)
+                GROUP BY stream LIMIT ?""", (sk, start-self.max_gap_seconds, end+self.max_gap_seconds,
+                self.max_rollup_rows+1, min(self.max_rollup_streams, self.max_query_rows)+1)).fetchall()
+            if (len(streams) > min(self.max_rollup_streams, self.max_query_rows)
+                    or sum(r["n"] for r in streams) > self.max_rollup_rows
+                    or any(r["n"] > self.max_query_rows for r in streams)):
                 return dict(result, truncated=True)
             for bucket in range(int(start), int(end), self.bucket_seconds):
                 old = db.execute("SELECT * FROM buckets WHERE scope=? AND start=?", (sk, bucket)).fetchone()
@@ -527,7 +658,16 @@ class EdgeStore:
                 if old and old["purged"]:
                     result["blocked"] += 1
                     continue
-                payload = self._calculate([r for r in rows if bucket - self.max_gap_seconds <= r["observed"] < bucket + self.bucket_seconds + self.max_gap_seconds], bucket, bucket + self.bucket_seconds)
+                payload = {"start": bucket, "end": bucket+self.bucket_seconds, "calculation_version": 3, "streams": {}}
+                payload_size = 0
+                for stream in streams:
+                    rows = db.execute("SELECT * FROM evidence WHERE scope=? AND stream=? AND observed>=? AND observed<? ORDER BY observed,identity,fingerprint LIMIT ?",
+                        (sk, stream["stream"], bucket-self.max_gap_seconds, bucket+self.bucket_seconds+self.max_gap_seconds, self.max_query_rows+1)).fetchall()
+                    calculated = self._calculate(rows, bucket, bucket+self.bucket_seconds)
+                    payload_size += len(_json(calculated).encode())
+                    if payload_size > 8388608 or len(payload["streams"])+len(calculated["streams"]) > self.max_query_rows:
+                        raise EdgeBackpressure("aggregate_byte_or_stream_limit")
+                    payload["streams"].update(calculated["streams"])
                 digest = _hash(payload)
                 previous_digest = old["revision"].split(":")[-1] if old else None
                 generation = int(old["revision"].split(":")[0]) if old and ":" in old["revision"] else 0
@@ -649,8 +789,9 @@ class EdgeStore:
         cutoff = _timestamp(before)
         result = dict(purged=0, protected=0, truncated=False)
         with self._db(write=True) as db:
-            rows = db.execute("SELECT * FROM evidence WHERE scope=? AND raw IS NOT NULL AND received<? ORDER BY received,identity LIMIT ?", (sk, cutoff, limit + 1)).fetchall()
+            rows = self._maintenance_page(db, sk, "retention", "raw IS NOT NULL AND received<?", (cutoff,), limit)
             result["truncated"] = len(rows) > limit
+            self._advance_maintenance(db, sk, "retention", rows, limit)
             for row in rows[:limit]:
                 at = row["observed"]
                 if row["state"] != "ready" or at is None or at >= cutoff:

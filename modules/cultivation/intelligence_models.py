@@ -46,15 +46,19 @@ class EnvironmentalZone(Scoped, Base):
 class TelemetryConnection(Scoped, Versioned, TimestampMixin, Base):
     __tablename__ = 'cultivation_telemetry_connections'
     __table_args__ = (UniqueConstraint('facility_id', 'provider', 'label', name='uq_ci_connection_label'),
-                      CheckConstraint("mode = 'file'", name='ck_ci_connection_mode'),
+                      CheckConstraint("mode = 'file' OR (mode = 'push' AND provider = 'json')", name='ck_ci_connection_mode'),
                       CheckConstraint("provider in ('json','csv','growlink')", name='ck_ci_connection_provider'),
                       CheckConstraint("status in ('configured','revoked')", name='ck_ci_connection_status'),
+                      CheckConstraint('expected_interval_seconds IS NULL OR expected_interval_seconds BETWEEN 1 AND 2678400', name='ck_cp_expected_interval'),
+                      CheckConstraint('stale_after_seconds IS NULL OR stale_after_seconds BETWEEN 1 AND 2678400', name='ck_cp_stale_after'),
                       ref('integration_configuration_id', 'integration_configurations'))
     integration_configuration_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     provider: Mapped[str] = mapped_column(String(80))
     label: Mapped[str] = mapped_column(String(160))
     mode: Mapped[str] = mapped_column(String(32), default='file')
     status: Mapped[str] = mapped_column(String(32), default='configured')
+    expected_interval_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    stale_after_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_by: Mapped[str] = mapped_column(ForeignKey('app_users.id', name='fk_ci_connection_actor', ondelete='RESTRICT'))
 
