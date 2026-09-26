@@ -39,6 +39,16 @@ def test_runtime_scoped_discovery_handles_new_expired_and_revoked_connections(pg
             grants.append(grant)
         session.flush()
         ids, grant_id = [row.id for row in connections], grants[0].id
+    # The disposable role has only grants introduced by the tested migrations.
+    # Production's pre-existing base SELECT grants were verified separately.
+    # Model only the required columns here, transactionally in the guarded test
+    # database. No application migration or production privilege is expanded.
+    for table, columns in (
+        ('coman_facilities', 'id,organization_id,active,cultivation_enabled'),
+        ('coman_organizations', 'id,active'),
+        ('service_accounts', 'id,organization_id,facility_id,active,scopes_json'),
+    ):
+        pg.exec_driver_sql(f'GRANT SELECT ({columns}) ON {table} TO doobielogic_render_runtime')
     pg.exec_driver_sql('SET LOCAL ROLE doobielogic_render_runtime')
     assert set(_discover(pg, config)) == set(ids[:2])
     pg.execute(text('UPDATE cultivation_ingress_grants SET revoked_at=now() WHERE id=:id'), {'id': grant_id})
