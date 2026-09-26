@@ -1,0 +1,28 @@
+.adoption-page .report-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 16px;
+  margin-block: 16px;
+}
+.adoption-page .inventory-panel { padding: 18px; min-width: 0; }
+.adoption-page p { overflow-wrap: anywhere; }
+.adoption-page form { display: grid; gap: 12px; margin-block: 16px; }
+.adoption-page label { display: grid; gap: 6px; min-width: 0; }
+.adoption-page input,
+.adoption-page select,
+.adoption-page textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #514b44;
+  border-radius: 8px;
+  background: #171717;
+  color: #eee;
+  font: inherit;
+}
+.adoption-page textarea { min-height: 88px; resize: vertical; }
+.adoption-page button { margin: 4px 8px 4px 0; min-height: 40px; white-space: normal; }
+.adoption-page form button { justify-self: start; }
+.wizard-steps, .wizard-navigation { display: flex; flex-wrap: wrap; gap: 6px; margin-block: 16px; }
+.wizard-steps button { flex: 1 1 130px; }

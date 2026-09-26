@@ -61,7 +61,8 @@ def test_integrations_screen_exposes_sandbox_connection_and_runtime_controls():
     app = _read("frontend/src/App.tsx")
     panel = _read("frontend/src/components/DeveloperConnectionsPanel.tsx")
     assert "DeveloperConnectionsPanel" in app
-    assert "<IntegrationsPage /><DeveloperConnectionsPanel />" in app
+    assert "<IntegrationsPage onNavigate={navigate}" in app
+    assert "<DeveloperConnectionsPanel />" in app
     for provider in ("metrc", "dutchie", "biotrack", "quickbooks"):
         assert f'{provider}:' in panel
     assert "SANDBOX ONLY" in panel

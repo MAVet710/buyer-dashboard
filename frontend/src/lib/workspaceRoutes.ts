@@ -59,6 +59,9 @@ const ROUTES: RouteEntry[] = [
 
   { page: "Reports", path: "/reports" },
   { page: "Sales & Category Trends", path: "/reports/sales-category-trends" },
+  { page: "Implementation Readiness", path: "/settings/implementation" },
+  { page: "Integration Wizard", path: "/settings/integration-wizard" },
+  { page: "Scheduled Reports", path: "/reports/scheduled" },
   { page: "Executive Reports", path: "/reports/executive" },
 
   { page: "Data & Settings", path: "/settings/data" },

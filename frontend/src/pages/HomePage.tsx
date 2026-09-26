@@ -22,6 +22,7 @@ type Context = { user: { display_name: string; email: string; role: string }; or
 type HomeAction = { label: string; description: string; page: string; roles?: string[] };
 
 const HOME_ACTIONS: HomeAction[] = [
+  { label: "Implementation Readiness", description: "Review facility setup evidence, owners, and implementation milestones.", page: "Implementation Readiness" },
   { label: "Open Work Queue", description: "Assign, track and complete operational work across your facility.", page: "Work Queue" },
   { label: "Open Operations Control Tower", description: "Resolve cross-workspace risk, review Doobie actions, check SOPs, labels, profitability, cultivation, machines, and commerce.", page: "Operations Control Tower", roles: ["dev", "admin", "buyer", "planner", "supervisor", "operator", "qa", "read_only"] },
   { label: "Ask Doobie Agent", description: "Use facility-scoped operational and regulatory intelligence to understand what needs attention and what should happen next.", page: "Doobie", roles: ["dev", "admin", "buyer", "planner", "supervisor", "operator", "qa", "read_only"] },
