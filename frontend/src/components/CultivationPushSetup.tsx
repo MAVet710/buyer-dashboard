@@ -40,6 +40,7 @@ function PushSetup({ connection, canManage }: { connection: Connection; canManag
   const active = !connection.revoked_at && connection.status !== "revoked";
   return <section aria-label="Normalized push setup"><h3>Normalized push setup</h3>
     <p>A first-party producer sends normalized JSON to this connection. This does not authorize a native Growlink webhook or discover equipment.</p>
+    <p>Readings are stored on the PC hosting this DoobieLogic instance, not automatically on the sensor. Use a facility-owned host to keep raw readings at the facility.</p>
     <details><summary>Integration instructions</summary><p>Register each source device and map its channel, original unit and time-effective room and zone using the forms below. Pending mapping evidence needs review before it can become valid room evidence.</p>
       <p>Send a bearer credential with Content-Type: application/json to:</p><code>{`/api/v1/external/v1/cultivation-telemetry/${encodeURIComponent(connection.id)}/batches`}</code>
       <p>Schema version 1 accepts a batch_id and readings array. Each reading needs event_id, source_device_id, source_channel, source_metric, value, unit and observed_at with a timezone. Optional quality defaults to valid. Preserve stable identities and unchanged payloads when retrying.</p>
