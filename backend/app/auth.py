@@ -4,7 +4,7 @@ from functools import lru_cache
 import jwt
 from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import Engine, or_, select
+from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from modules.coman.models import AppUser, AppUserFacilityRole, Facility
@@ -162,7 +162,16 @@ def get_request_context(
         email = str(claims.get("email") or "").strip().casefold()
         app_user_id = str(app_metadata.get("app_user_id") or user_id)
         with Session(engine) as session:
-            user = session.scalar(select(AppUser).where(or_(AppUser.id == app_user_id, AppUser.email == email)))
+            # A verified canonical identity is authoritative. Combining it with
+            # an email OR could select an unrelated blank-email or conflicting
+            # account first, including a different role or tenant.
+            user = session.get(AppUser, app_user_id)
+            if user is None and email:
+                # Preserve explicit legacy email compatibility only when there
+                # is one unambiguous nonempty match. Never fall back from an
+                # inactive exact identity and never select an arbitrary row.
+                matches = session.scalars(select(AppUser).where(AppUser.email == email).limit(2)).all()
+                user = matches[0] if len(matches) == 1 else None
             if not user or not user.active:
                 raise HTTPException(status_code=403, detail="This account is not active in Buyer Dash.")
             facility = session.get(Facility, facility_id)
