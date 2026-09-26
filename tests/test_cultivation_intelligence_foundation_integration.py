@@ -70,8 +70,8 @@ def test_threshold_http_versions_database_bounds_and_immutable_guard(setup):
         connection.execute(text('UPDATE cultivation_recipe_targets SET threshold_seconds=1 WHERE stage_id=:stage'),{'stage':recipe['stages'][0]['id']})
     with pytest.raises(IntegrityError,match='ck_ci_target_threshold'),engine.begin() as connection:
         connection.execute(text('UPDATE cultivation_recipe_targets SET threshold_seconds=0 WHERE stage_id=:stage'),{'stage':new['stages'][0]['id']})
-    # A draft child must not be moved into an approved version either.
-    with pytest.raises(IntegrityError,match='approved_recipe_immutable'),engine.begin() as connection:
+    # Parentage is immutable from insertion, including drafts.
+    with pytest.raises(IntegrityError,match='recipe_parent_immutable'),engine.begin() as connection:
         connection.execute(text('UPDATE cultivation_recipe_targets SET stage_id=:approved, metric=:metric WHERE stage_id=:draft'),{'approved':recipe['stages'][0]['id'],'draft':new['stages'][0]['id'],'metric':'humidity'})
 
 
