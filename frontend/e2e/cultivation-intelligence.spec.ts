@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-const origin = "http://127.0.0.1:4196";
+const origin = process.env.CI_OPERATOR_ORIGIN || "http://127.0.0.1:4196";
 const fixture = "/e2e/fixtures/cultivation-intelligence.html";
 const base = "/api/v1/cultivation-intelligence";
 const room = { id: "r2", room_code: "R2", display_name: "Exact room two", phase: "vegetative", active: true, plant_capacity: 50 };
@@ -62,15 +62,15 @@ for (const width of [390, 1280]) {
 }
 test("fixture unknown requested records never fall back", async ({ page }) => { await mock(page); await page.goto(origin + fixture + "?room=absent"); const dialog = page.getByRole("dialog"); await expect(dialog).toContainText("unavailable"); await expect(dialog).not.toContainText("Exact room two"); await expect(dialog.getByRole("button", { name: "Retry" })).toBeVisible(); });
 test("fixture effective deny hides mutation controls", async ({ page }) => { await mock(page, false); await page.goto(origin + fixture); await expect(page.getByText("Cultivation command panel")).toBeVisible(); await expect(page.getByRole("button", { name: "Create Cycle" })).toHaveCount(0); await expect(page.getByRole("button", { name: "Recipes", exact: true })).toHaveCount(0); });
-test("fixture cycle version conflict retains exact input", async ({ page }) => { const writes = await mock(page); await page.goto(origin + fixture + "?cycle=c2"); await page.getByRole("button", { name: "Manage", exact: true }).click(); await page.getByRole("combobox", { name: "Room", exact: true }).selectOption("r2"); await page.getByLabel("Entered at").fill("2026-09-26T12:00:00Z"); await page.getByRole("button", { name: "Save cycle action" }).click(); await expect(page.getByRole("alert")).toContainText("version conflict"); await expect(page.getByLabel("Entered at")).toHaveValue("2026-09-26T12:00:00Z"); expect(writes[0].body).toMatchObject({ version: 2, room_id: "r2", zone_id: null }); });
+test("fixture cycle version conflict retains exact input", async ({ page }) => { const writes = await mock(page); await page.goto(origin + fixture + "?cycle=c2"); await page.getByRole("button", { name: "Manage", exact: true }).click(); await page.getByRole("combobox", { name: "Room", exact: true }).selectOption("r2"); await page.getByLabel("Entered at").fill("2026-09-26T12:00"); await page.getByRole("button", { name: "Save cycle action" }).click(); await expect(page.getByRole("alert")).toContainText("version conflict"); await expect(page.getByLabel("Entered at")).toHaveValue("2026-09-26T12:00"); expect(writes[0].body).toMatchObject({ version: 2, room_id: "r2", zone_id: null }); });
 test("fixture approved recipes require a new version with arbitrary stages", async ({ page }) => { await mock(page); await page.goto(origin + fixture); await page.getByRole("button", { name: "Recipes", exact: true }).click(); await expect(page.getByRole("button", { name: "Approve version 1" })).toHaveCount(0); await page.getByRole("button", { name: "New version from this recipe" }).click(); await page.getByLabel("Stage name").fill("Facility custom stage"); await page.getByRole("button", { name: "Add target", exact: true }).click(); await page.getByRole("combobox", { name: "Measurement", exact: true }).selectOption("future_metric"); await page.getByRole("button", { name: "Save draft version" }).click(); await expect(page.getByRole("alert")).toContainText("at least one valid bound"); await page.getByLabel("Minimum").fill("0"); await page.getByRole("button", { name: "Save draft version" }).click(); await expect(page.getByRole("button", { name: "Approve version 2" })).toBeVisible(); });
 test("fixture preview digest, duplicates, mapping conflict and revoke", async ({ page }) => {
   const writes = await mock(page); await page.goto(origin + fixture + "?view=connections"); await page.getByRole("combobox", { name: "File connection", exact: true }).selectOption("conn1");
   await expect(page.getByRole("button", { name: "Commit reviewed import" })).toBeDisabled();
-  await page.getByLabel("Measurement content").fill('[{"event_id":"fixture"}]'); await page.getByRole("button", { name: "Preview import" }).click(); await expect(page.getByRole("button", { name: "Commit reviewed import" })).toBeEnabled();
-  await page.getByLabel("Measurement content").fill('[{"event_id":"changed"}]'); await expect(page.getByRole("button", { name: "Commit reviewed import" })).toBeDisabled(); await page.getByRole("button", { name: "Preview import" }).click(); await page.getByRole("button", { name: "Commit reviewed import" }).click();
-  await expect(page.getByRole("status")).toContainText("duplicates 1"); expect(writes.find(item => item.path.endsWith("/imports"))?.body).toMatchObject({ digest: "fixture-digest", content: '[{"event_id":"changed"}]', mappings: [] });
-  await page.getByText("Fixture device", { exact: true }).click(); await page.getByLabel("Mapped room").selectOption("r2"); await page.getByLabel("Effective at").fill("2026-09-26T12:00:00Z"); await page.getByRole("button", { name: "Save mapping revision" }).click(); await expect(page.getByRole("alert")).toContainText("Device version conflict"); await expect(page.getByLabel("Effective at")).toHaveValue("2026-09-26T12:00:00Z");
+  await page.getByLabel("Measurement content").fill('[{"event_id":"fixture","source_device_id":"d1","source_channel":"temp","source_metric":"temperature","value":77,"unit":"F","observed_at":"2026-09-26T12:00:00Z"}]'); await page.getByRole("button", { name: "Preview import" }).click(); await expect(page.getByRole("button", { name: "Commit reviewed import" })).toBeEnabled();
+  await page.getByLabel("Measurement content").fill('[{"event_id":"changed","source_device_id":"d1","source_channel":"temp","source_metric":"temperature","value":77,"unit":"F","observed_at":"2026-09-26T12:00:00Z"}]'); await expect(page.getByRole("button", { name: "Commit reviewed import" })).toBeDisabled(); await page.getByRole("button", { name: "Preview import" }).click(); await page.getByRole("button", { name: "Commit reviewed import" }).click();
+  await expect(page.getByRole("status")).toContainText("duplicates 1"); expect(writes.find(item => item.path.endsWith("/imports"))?.body).toMatchObject({ digest: "fixture-digest", content: '[{"event_id":"changed","source_device_id":"d1","source_channel":"temp","source_metric":"temperature","value":77,"unit":"F","observed_at":"2026-09-26T12:00:00Z"}]', mappings: [] });
+  await page.getByText("Fixture device", { exact: true }).click(); await page.getByLabel("Mapped room").selectOption("r2"); await page.getByLabel("Effective at").fill("2026-09-26T12:00"); await page.getByRole("button", { name: "Save mapping revision" }).click(); await expect(page.getByRole("alert")).toContainText("Device version conflict"); await expect(page.getByLabel("Effective at")).toHaveValue("2026-09-26T12:00");
   await page.getByRole("button", { name: "Revoke connection and preserve evidence" }).click(); await expect(page.getByText("Revoked. Existing evidence is preserved; ingestion is disabled.")).toBeVisible(); await expect(page.getByRole("button", { name: "Preview import" })).toHaveCount(0);
 });
 for (const width of [390, 1280]) {
@@ -88,6 +88,8 @@ for (const width of [390, 1280]) {
     expect(writes[0].body).toEqual({ format: "csv", content, mappings: [] });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
     await page.getByRole("button", { name: "Preview import" }).focus(); await page.keyboard.press("Tab");
+    await expect(page.getByRole("region", { name: "Normalized sample readings", exact: true })).toBeFocused();
+    await page.keyboard.press("Tab");
     await expect(page.getByRole("button", { name: "Commit reviewed import" })).toBeFocused();
   });
 }
@@ -127,6 +129,7 @@ for (const width of [390, 1280]) {
     await page.getByLabel("Transition boundary").fill(boundary); await page.getByRole("button", { name: "Close this occupancy" }).click();
     await expect(page.getByLabel("Entered at")).toHaveValue(boundary);
     const refresh = page.getByRole("button", { name: "Use current version 3 and keep input" });
+    await expect(refresh.or(page.getByText("Editing cycle version 3.", { exact: false }))).toBeVisible();
     if (await refresh.count()) await refresh.click();
     await expect(page.getByText("Editing cycle version 3.", { exact: false })).toBeVisible();
     await page.getByRole("combobox", { name: "Room", exact: true }).selectOption("r2"); await page.getByLabel("Zone (optional)").selectOption("zone-created"); await page.getByLabel("Approved recipe stage").selectOption("stage1"); await page.getByRole("button", { name: "Save cycle action" }).click();
@@ -180,7 +183,7 @@ test("metadata, mapping versions, quarantine reasons, rollup and retention prote
   await expect(page.getByText(/Last import \(count-only audit\)/)).toContainText("2026-09-24T00:00:00Z");
   await page.getByLabel("Measurement content").fill("[]"); await page.getByRole("button", { name: "Preview import" }).click(); await expect(page.getByRole("button", { name: "Commit reviewed import" })).toBeEnabled();
   await page.getByText("Fixture device", { exact: true }).click(); await expect(page.getByText(/ch1: source_temperature/)).toBeVisible();
-  await page.getByLabel("Mapped room").selectOption("r2"); await page.getByLabel("Zone (optional)").selectOption("z2"); await page.getByLabel("Effective at").fill("2026-09-27T00:00:00Z"); await page.getByRole("button", { name: "Save mapping revision" }).click();
+  await page.getByLabel("Mapped room").selectOption("r2"); await page.getByLabel("Zone (optional)").selectOption("z2"); await page.getByLabel("Effective at").fill("2026-09-27T00:00"); await page.getByRole("button", { name: "Save mapping revision" }).click();
   await expect(page.getByRole("button", { name: "Commit reviewed import" })).toBeDisabled();
   await page.getByLabel("Source channel", { exact: true }).fill("ch2"); await page.getByLabel("Source metric", { exact: true }).fill("custom"); await page.getByLabel("Source unit", { exact: true }).fill("custom"); await page.getByLabel("Normalized measurement").selectOption("future_metric"); await page.getByRole("button", { name: "Save channel mapping" }).click();
   await expect.poll(() => writes.some(write => write.path.endsWith("/sensors"))).toBe(true); expect(writes.find(write => write.path.endsWith("/sensors"))?.body.version).toBe(2);

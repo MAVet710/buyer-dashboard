@@ -61,7 +61,7 @@ class RetentionInput(DrainInput):
 def _stream_id(connection_id,device_id,channel):
     return hashlib.sha256(json.dumps([connection_id,device_id,channel],separators=(',',':')).encode()).hexdigest()
 
-def configured_edge(path=None):
+def configured_edge(path=None, *, read_only=False):
     path=path if path is not None else os.environ.get('CULTIVATION_EDGE_PATH','')
     if not path:
         raise HTTPException(503,'Local cultivation evidence storage is not configured.')
@@ -74,7 +74,7 @@ def configured_edge(path=None):
             except ValueError:raise HTTPException(503,'Invalid local evidence limit configuration.') from None
             if not 1<=value<=ceiling:raise HTTPException(503,'Invalid local evidence limit configuration.')
             options[name]=value
-    return EdgeStore(path,**options)
+    return EdgeStore(path,read_only=read_only,**options)
 
 class TelemetryGatewayService(IntelligenceService):
     def __init__(self,engine,context,*,edge=None,path=None,archive_dir=None):
@@ -124,8 +124,10 @@ class TelemetryGatewayService(IntelligenceService):
                 resolved.append(snapshot)
                 if not hint or not snapshot:unknown.append(index)
                 elif snapshot['metric']!=hint['metric']:conflicts.append(index)
+            from .preview_samples import sample_rows
+            samples=sample_rows(s,self,parsed['readings'],parsed['mapping_hints'],resolved)
             fingerprint=self._context_fingerprint(identity,resolved)
-            return {'digest':self._digest(identity,connection.version,p,fingerprint),'context_fingerprint':fingerprint,'rows':len(parsed['readings']),'unknown_channels':unknown,'conflicts':conflicts,'can_commit':not conflicts,'identity_conflict_check':'at_commit'}
+            return {'digest':self._digest(identity,connection.version,p,fingerprint),'context_fingerprint':fingerprint,'rows':len(parsed['readings']),'unknown_channels':unknown,'conflicts':conflicts,'can_commit':not conflicts,'identity_conflict_check':'at_commit','sample_rows':samples,'samples_truncated':len(parsed['readings'])>20}
 
     def import_content(self,identity,payload):
         p=ImportCommit.model_validate(payload)

@@ -31,6 +31,7 @@ from .routers.plants import router as plants_router
 from .routers.cultivation_bulk import router as cultivation_bulk_router
 from .routers.cultivation_telemetry import router as cultivation_telemetry_router
 from .routers.cultivation_intelligence_workspace import router as cultivation_intelligence_workspace_router
+from .routers.cultivation_edge_work import router as cultivation_edge_work_router
 from .routers.cultivation_ingress import router as cultivation_ingress_router
 from .routers.production import router as production_router
 from .routers.white_label import router as white_label_router
@@ -152,9 +153,18 @@ async def lifespan(application: FastAPI):
     monitor = SecurityMonitor(engine, settings)
     application.state.security_monitor = monitor
     monitor.start()
+    from .services.cultivation_maintenance_runtime import start_host_maintenance, stop_maintenance
+    maintenance = None
     try:
+        maintenance = start_host_maintenance(engine)
+        application.state.cultivation_maintenance = maintenance
         yield
     finally:
+        if maintenance is not None:
+            from asyncio import to_thread
+            stopped = await to_thread(stop_maintenance)
+            if not stopped:
+                logger.warning("Cultivation maintenance is still stopping; replacement remains blocked")
         await monitor.stop()
 
 
@@ -296,6 +306,7 @@ app.include_router(plants_router, prefix=settings.api_prefix)
 app.include_router(cultivation_bulk_router, prefix=settings.api_prefix)
 app.include_router(cultivation_telemetry_router, prefix=settings.api_prefix)
 app.include_router(cultivation_intelligence_workspace_router, prefix=settings.api_prefix)
+app.include_router(cultivation_edge_work_router, prefix=settings.api_prefix)
 app.include_router(cultivation_ingress_router, prefix=settings.api_prefix)
 app.include_router(production_router, prefix=settings.api_prefix)
 app.include_router(white_label_router, prefix=settings.api_prefix)

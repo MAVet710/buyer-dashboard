@@ -13,3 +13,7 @@
 .cultivation-intelligence .ci-reading-value { font-size: 1.4rem; font-weight: 600; margin: 8px 0; }
 .cultivation-intelligence code { white-space: pre-wrap; overflow-wrap: anywhere; }
 .cultivation-intelligence .form-grid > * { min-width: 0; }
+
+.cultivation-intelligence .ci-table-scroll { max-width: 100%; overflow-x: auto; }
+.cultivation-intelligence .ci-table-scroll table { width: 100%; min-width: 640px; }
+.cultivation-intelligence [data-focused="true"] { outline: 2px solid var(--accent, #387354); outline-offset: 2px; }
