@@ -1,7 +1,6 @@
 export const helpSeoRoutes: Record<string, { title: string; description: string; kind: "article" }> = {
   "/help/getting-started": { title: "Getting started with DoobieLogic | DoobieLogic Help", description: "Set your organization, facility, operation mode, and data source before beginning daily work.", kind: "article" },
   "/help/home": { title: "Operations Home | DoobieLogic Help", description: "Use the home workspace to see immediate priorities, source readiness, and shortcuts into active work.", kind: "article" },
-  "/help/home/work-queue": { title: "Work Queue | DoobieLogic Help", description: "Review assigned and system-generated work in one place and move from exception to the source workspace.", kind: "article" },
   "/help/home/control-towers": { title: "Operations and Enterprise Control Towers | DoobieLogic Help", description: "Use control towers for cross-workspace exceptions, readiness, risk, and multi-facility oversight.", kind: "article" },
   "/help/buying": { title: "Buying overview | DoobieLogic Help", description: "Move from sales and stock context to recommendations, purchase orders, budget, delivery performance, and replenishment policies.", kind: "article" },
   "/help/buying/recommendations": { title: "Buying Recommendations | DoobieLogic Help", description: "Review suggested purchase actions with the sales, inventory, cover, and vendor context behind them.", kind: "article" },
@@ -33,7 +32,6 @@ export const helpSeoRoutes: Record<string, { title: string; description: string;
   "/help/wholesale": { title: "Wholesale Ops overview | DoobieLogic Help", description: "Move sellable inventory through customer demand, orders, fulfillment, storefront, accounting, and collection context.", kind: "article" },
   "/help/wholesale/inventory": { title: "Wholesale Inventory | DoobieLogic Help", description: "Review released sellable lots and understand why inventory is available, reserved, or blocked from the wholesale catalog.", kind: "article" },
   "/help/wholesale/customers": { title: "Wholesale Customers | DoobieLogic Help", description: "Maintain retailer accounts, licensing, contacts, payment terms, and commercial relationship context.", kind: "article" },
-  "/help/wholesale/pipeline": { title: "Wholesale Pipeline | DoobieLogic Help", description: "Track opportunities and commercial follow-up before demand becomes a confirmed sales order.", kind: "article" },
   "/help/wholesale/accounting": { title: "Wholesale Accounting | DoobieLogic Help", description: "Review invoices, open balances, A/R aging, payment status, and accounting synchronization.", kind: "article" },
   "/help/wholesale/storefront": { title: "Wholesale Storefront | DoobieLogic Help", description: "Publish a branded wholesale catalog and review customer order requests before they become sales orders.", kind: "article" },
   "/help/wholesale/orders": { title: "Orders & Fulfillment | DoobieLogic Help", description: "Create, approve, allocate, and progress wholesale orders with customer and inventory context together.", kind: "article" },
