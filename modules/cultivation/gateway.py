@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException
 from .adapters.normalized import NormalizedExportAdapter
 from .edge_store import EdgeStore, Scope
-from .intelligence_models import (TelemetryConnection, CultivationDevice, CultivationSensor, DeviceMapping, CropCycleRoom, CropCycle, CultivationRecipe, CultivationRecipeStage, CultivationRecipeTarget)
+from .intelligence_models import TelemetryConnection, CultivationDevice, DeviceMapping
 from .intelligence_service import IntelligenceService, Input, connection_payload
 from .telemetry import TelemetryConflict, utc
 from .metrics import canonical_metric
@@ -61,6 +61,21 @@ class RetentionInput(DrainInput):
 def _stream_id(connection_id,device_id,channel):
     return hashlib.sha256(json.dumps([connection_id,device_id,channel],separators=(',',':')).encode()).hexdigest()
 
+def configured_edge(path=None):
+    path=path if path is not None else os.environ.get('CULTIVATION_EDGE_PATH','')
+    if not path:
+        raise HTTPException(503,'Local cultivation evidence storage is not configured.')
+    options={}
+    # Host configuration only. Browsers cannot select files or quotas.
+    for name,ceiling in {'max_scope_rows':1000000,'max_scope_bytes':1073741824,'max_disk_bytes':4294967296,'max_batch':500,'max_query_rows':100000,'max_gap_seconds':86400,'bucket_seconds':86400,'max_window_seconds':2678400}.items():
+        raw=os.environ.get('CULTIVATION_EDGE_'+name.upper())
+        if raw is not None:
+            try:value=int(raw)
+            except ValueError:raise HTTPException(503,'Invalid local evidence limit configuration.') from None
+            if not 1<=value<=ceiling:raise HTTPException(503,'Invalid local evidence limit configuration.')
+            options[name]=value
+    return EdgeStore(path,**options)
+
 class TelemetryGatewayService(IntelligenceService):
     def __init__(self,engine,context,*,edge=None,path=None,archive_dir=None):
         super().__init__(engine,context)
@@ -69,95 +84,15 @@ class TelemetryGatewayService(IntelligenceService):
         self._archive_dir=archive_dir if archive_dir is not None else os.environ.get('CULTIVATION_EDGE_ARCHIVE_DIR','')
 
     def edge(self):
-        if self._edge is None:
-            if not self._path:
-                raise HTTPException(503,'Local cultivation evidence storage is not configured.')
-            options={}
-            # Host configuration only. Browsers cannot select files or quotas.
-            for name,ceiling in {'max_scope_rows':1000000,'max_scope_bytes':1073741824,'max_disk_bytes':4294967296,'max_batch':500,'max_query_rows':100000,'max_gap_seconds':86400,'bucket_seconds':86400,'max_window_seconds':2678400}.items():
-                raw=os.environ.get('CULTIVATION_EDGE_'+name.upper())
-                if raw is not None:
-                    try:value=int(raw)
-                    except ValueError:raise HTTPException(503,'Invalid local evidence limit configuration.') from None
-                    if not 1<=value<=ceiling:raise HTTPException(503,'Invalid local evidence limit configuration.')
-                    options[name]=value
-            self._edge=EdgeStore(self._path,**options)
+        if self._edge is None:self._edge=configured_edge(self._path)
         return self._edge
 
     def _scope(self,identity):return Scope(self.org,self.facility,identity)
 
     def _resolver(self,s,connection_id):
-        """Eight bounded set queries, then deterministic in-memory resolution per row."""
-        def bounded(model,condition,limit=5000):
-            rows=s.scalars(select(model).where(*self.scope(model),condition).limit(limit+1)).all()
-            if len(rows)>limit:raise ValueError('Mapping context exceeds bounded import capacity.')
-            return rows
-        devices=bounded(CultivationDevice,CultivationDevice.connection_id==connection_id,500)
-        device_ids=[d.id for d in devices]
-        sensors=bounded(CultivationSensor,CultivationSensor.device_id.in_(device_ids))
-        mappings=bounded(DeviceMapping,DeviceMapping.device_id.in_(device_ids))
-        room_ids=list({m.room_id for m in mappings})
-        occupancy=bounded(CropCycleRoom,CropCycleRoom.room_id.in_(room_ids))
-        cycles=bounded(CropCycle,CropCycle.id.in_([o.cycle_id for o in occupancy]))
-        recipes=bounded(CultivationRecipe,CultivationRecipe.id.in_([c.recipe_id for c in cycles if c.recipe_id]))
-        stages=bounded(CultivationRecipeStage,CultivationRecipeStage.id.in_([o.stage_id for o in occupancy if o.stage_id]))
-        targets=bounded(CultivationRecipeTarget,CultivationRecipeTarget.stage_id.in_([stage.id for stage in stages]))
-        device_by_source={d.source_device_id:d for d in devices if d.active}
-        sensor_map={(r.device_id,r.source_channel,r.source_metric,r.source_unit):r for r in sensors}
-        mapping_map={};occupancy_map={}
-        for row in mappings:mapping_map.setdefault(row.device_id,[]).append(row)
-        for values in mapping_map.values():values.sort(key=lambda r:utc(r.effective_at))
-        for row in occupancy:occupancy_map.setdefault(row.room_id,[]).append(row)
-        cycle_map={r.id:r for r in cycles};recipe_map={r.id:r for r in recipes};stage_map={r.id:r for r in stages}
-        target_map={(r.stage_id,r.metric):r for r in targets}
-        hold_seconds=self._edge.max_gap_seconds if self._edge else int(os.environ.get('CULTIVATION_EDGE_MAX_GAP_SECONDS','300'))
-        if not 1<=hold_seconds<=86400:raise ValueError('Invalid local evidence gap configuration.')
-        def resolve(scope,raw):
-            if scope != self._scope(connection_id):raise ValueError('Mapping scope mismatch.')
-            try:
-                at=raw['observed_at']
-                if isinstance(at,str):at=datetime.fromisoformat(at.replace('Z','+00:00'))
-                if at.tzinfo is None:return None
-                at=utc(at)
-                device=device_by_source.get(raw.get('source_device_id'))
-                sensor=sensor_map.get((device.id,raw.get('source_channel'),raw.get('source_metric'),raw.get('unit'))) if device else None
-                if sensor is None:return None
-                revisions=mapping_map.get(device.id,[])
-                applicable=[m for m in revisions if utc(m.effective_at)<=at]
-                if not applicable:return None
-                mapping=applicable[-1]
-                begin=utc(mapping.effective_at)
-                end=at+timedelta(seconds=hold_seconds)
-                for revision in revisions:
-                    if utc(revision.effective_at)>at:end=min(end,utc(revision.effective_at))
-                rooms=[o for o in occupancy_map.get(mapping.room_id,[]) if o.zone_id is None or o.zone_id==mapping.zone_id]
-                active=[o for o in rooms if utc(o.entered_at)<=at and (o.exited_at is None or at<utc(o.exited_at))]
-                # Every stage/occupancy boundary limits attribution, including an upcoming ambiguity.
-                for o in rooms:
-                    for bound in (o.entered_at,o.exited_at):
-                        if bound and utc(bound)>at:end=min(end,utc(bound))
-                        elif bound:begin=max(begin,utc(bound))
-                snapshot={'organization_id':self.org,'facility_id':self.facility,'connection_id':connection_id,'room_id':mapping.room_id,'zone_id':mapping.zone_id,'device_id':device.id,'sensor_id':sensor.id,'mapping_revision':mapping.id,'metric':sensor.metric,'effective_from':begin.isoformat(),'effective_to':end.isoformat(),'cycle_id':None,'stage_id':None}
-                if len(active)==1:
-                    interval=active[0];cycle=cycle_map[interval.cycle_id]
-                    snapshot['cycle_id']=cycle.id
-                    stage=stage_map.get(interval.stage_id)
-                    recipe=recipe_map.get(cycle.recipe_id)
-                    if stage and recipe and stage.recipe_id==recipe.id and recipe.status=='approved' and recipe.approved_at:
-                        approved_at=utc(recipe.approved_at)
-                        if at<approved_at:snapshot['effective_to']=min(end,approved_at).isoformat()
-                        else:snapshot['effective_from']=max(begin,approved_at).isoformat()
-                    if stage and recipe and stage.recipe_id==recipe.id and recipe.status=='approved' and recipe.approved_at and utc(recipe.approved_at)<=at:
-                        snapshot.update(stage_id=stage.id,recipe_revision=recipe.id)
-                        target=target_map.get((stage.id,sensor.metric))
-                        if target:
-                            snapshot.update(target_min=target.minimum,target_max=target.maximum)
-                            if target.threshold_seconds is not None:snapshot['threshold_seconds']=target.threshold_seconds
-                # Zero or multiple applicable cycles retain room evidence without guessing.
-                return snapshot
-            except (ValueError,TypeError,KeyError,AttributeError):
-                return None
-        return resolve
+        from .context_resolution import build_resolver
+        gap=self._edge.max_gap_seconds if self._edge else int(os.environ.get('CULTIVATION_EDGE_MAX_GAP_SECONDS','300'))
+        return build_resolver(s,self._scope(connection_id),max_gap_seconds=gap)
 
     def _parse(self,p):
         if len(p.content.encode('utf-8'))>1048576:raise ValueError('Export byte limit exceeded.')
@@ -222,12 +157,37 @@ class TelemetryGatewayService(IntelligenceService):
             return {'processed':result['resolved'],'pending':result['pending'],'conflicts':0,'rollup':aggregate,'raw_stays_local':True,'cloud_publication':False}
 
     def health(self,identity):
+        from .ingress_models import CultivationIngressGrant
+        from .ingress import grant_payload
+        from modules.operational_moats.models import ServiceAccount
         self.authorize()
         with Session(self.engine) as s:
             connection=self.get(s,TelemetryConnection,identity)
             last_import=self._last_imports(s,[identity]).get(identity)
+            grants=s.execute(select(CultivationIngressGrant,ServiceAccount.active).join(ServiceAccount,ServiceAccount.id==CultivationIngressGrant.service_account_id).where(*self.scope(CultivationIngressGrant),CultivationIngressGrant.connection_id==identity).order_by(CultivationIngressGrant.created_at.desc()).limit(201)).all()
+            grant_states=[grant_payload(r,active)['status'] for r,active in grants[:200]]
         diagnostics=self.edge().diagnostics(self._scope(identity)) if self._edge or self._path else None
-        return {'connection':{**connection_payload(connection),'last_import_at':last_import},'edge':diagnostics,'live_contract_status':'blocked','freshness':{'basis':'local_import_and_scoped_edge_evidence','last_import_at':last_import,'last_received_at':diagnostics['last_received_at'] if diagnostics else None,'last_valid_observed_at':diagnostics['last_valid_observed_at'] if diagnostics else None,'sensor_freshness_status':'unknown','last_provider_contact_at':None,'live_connected':False}}
+        if diagnostics is not None:
+            transport_status=self.edge().transport_status(self._scope(identity))
+            diagnostics={**diagnostics,'last_push_received_at':transport_status['last_committed_at'],'last_push_batch_id':transport_status['last_batch_id'],'transport':transport_status}
+        last_push=diagnostics.get('last_push_received_at') if diagnostics else None
+        observed=diagnostics.get('last_valid_observed_at') if diagnostics else None
+        transport='disabled' if connection.mode!='push' else 'revoked' if connection.revoked_at else 'awaiting' if not last_push else 'received'
+        if transport=='received' and connection.stale_after_seconds:
+            try:
+                received=datetime.fromisoformat(last_push.replace('Z','+00:00'))
+                transport='stale' if (datetime.now(timezone.utc)-utc(received)).total_seconds()>connection.stale_after_seconds else 'receiving'
+            except (ValueError,TypeError,AttributeError):transport='unknown'
+        freshness='unknown'
+        if observed and connection.stale_after_seconds:
+            try:
+                at=datetime.fromisoformat(observed.replace('Z','+00:00'))
+                freshness='stale' if (datetime.now(timezone.utc)-utc(at)).total_seconds()>connection.stale_after_seconds else 'recent'
+            except (ValueError,TypeError,AttributeError):pass
+        return {'connection':{**connection_payload(connection),'last_import_at':last_import},'edge':diagnostics,
+            'live_contract_status':'normalized_push' if connection.mode=='push' else 'blocked',
+            'ingress':{'grant_state':'active' if 'active' in grant_states else 'unknown' if len(grants)>200 else 'revoked' if 'revoked' in grant_states else 'disabled' if 'disabled' in grant_states else 'expired' if grant_states else 'unprovisioned','grants_truncated':len(grants)>200,'transport_state':transport,'last_push_received_at':last_push,'last_push_batch_id':diagnostics.get('last_push_batch_id') if diagnostics else None},
+            'freshness':{'basis':'connection_scope_not_room_condition','last_import_at':last_import,'last_received_at':diagnostics.get('last_received_at') if diagnostics else None,'last_valid_observed_at':observed,'observation_status':freshness,'sensor_freshness_status':'unknown','last_provider_contact_at':None,'live_connected':False}}
 
     def _window(self,start=None,end=None):
         if (start is None)!=(end is None):raise ValueError('Supply both start and end.')

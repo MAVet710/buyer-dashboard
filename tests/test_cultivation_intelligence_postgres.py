@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 
 ROOT = Path(__file__).resolve().parents[1]
 REVISION = "0086_cultivation_intelligence"
+LATEST_REVISION = "0087_cultivation_push"
 TABLES = (
     "cultivation_recipes", "cultivation_environment_zones", "cultivation_recipe_stages",
     "cultivation_telemetry_connections", "cultivation_devices", "cultivation_recipe_targets",
@@ -116,9 +117,9 @@ def test_actual_migration_head_columns_scoped_foreign_keys_and_rls(pg):
     cfg = Config(str(ROOT / "alembic.ini"))
     cfg.set_main_option("script_location", str(ROOT / "migrations"))
     scripts = ScriptDirectory.from_config(cfg)
-    assert scripts.get_heads() == [REVISION]
+    assert scripts.get_heads() == [LATEST_REVISION]
     assert scripts.get_revision(REVISION).down_revision == "0085_cultivation_telemetry"
-    assert pg.execute(sa.text("SELECT version_num FROM alembic_version")).scalars().all() == [REVISION]
+    assert pg.execute(sa.text("SELECT version_num FROM alembic_version")).scalars().all() == [LATEST_REVISION]
     inspector = sa.inspect(pg)
     from modules.coman.models import Base
     from modules.cultivation import intelligence_models  # noqa: F401
@@ -206,7 +207,7 @@ def test_old_observation_insert_compatibility_and_evidence_protecting_downgrade(
                 migration.downgrade()
         savepoint.rollback()
     assert pg.scalar(sa.text("SELECT original_value FROM cultivation_environment_observations WHERE id=:id"), f) == 77
-    assert pg.scalar(sa.text("SELECT version_num FROM alembic_version")) == REVISION
+    assert pg.scalar(sa.text("SELECT version_num FROM alembic_version")) == LATEST_REVISION
 
 
 RECIPE_INSERT = sa.text("""INSERT INTO cultivation_recipes

@@ -1,0 +1,2 @@
+import { defineConfig } from "@playwright/test";
+export default defineConfig({ testDir: "..", testMatch: "cultivation-push.spec.ts", workers: 1, retries: 0, reporter: "list", outputDir: "../../test-results/cultivation-push", use: { baseURL: "http://127.0.0.1:4195", browserName: "chromium", channel: process.platform === "win32" ? "chrome" : undefined, trace: "off", screenshot: "off", video: "off" } });

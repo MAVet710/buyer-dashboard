@@ -7,7 +7,7 @@ import sys
 from sqlalchemy import create_engine, inspect, text
 
 ROOT = Path(__file__).resolve().parents[1]
-REVISION = "0086_cultivation_intelligence"
+REVISION = "0087_cultivation_push"
 
 
 def test_fresh_chain_empty_rollback_and_reupgrade(tmp_path):
@@ -46,6 +46,8 @@ def test_fresh_chain_empty_rollback_and_reupgrade(tmp_path):
         assert columns["original_unit"]["nullable"]
     finally:
         engine.dispose()
+    migrate("downgrade", "-1")
+    check_revision("0086_cultivation_intelligence")
     migrate("downgrade", "-1")
     check_revision("0085_cultivation_telemetry")
     migrate("upgrade", "head")

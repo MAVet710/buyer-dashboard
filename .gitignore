@@ -75,3 +75,9 @@ artifacts/metrc-evaluation/final_report.md
 
 # Isolated local regression databases, archives and temporary evidence
 /.tmp/
+
+# Local isolated dependency cache, never release source
+/.pnpm-store/
+
+# Browser-only acceptance artifacts
+/frontend/test-results/
