@@ -54,7 +54,7 @@ def wizard(engine, settings, context):
     items = []
     for key, label in PROVIDERS.items():
         value = values.get(key)
-        required = key == "metrc" and mode["effective_mode"] == "metrc_sandbox"
+        required = key == "metrc" and mode["effective_mode"] in {"metrc_sandbox", "metrc_production"}
         applicable = bool(capabilities) if key in {"metrc", "biotrack"} else ("commercial" in capabilities if key == "quickbooks" else True)
         # An explicitly selected Metrc mode is required even if capabilities change.
         applicable = applicable or required
@@ -71,7 +71,7 @@ def wizard(engine, settings, context):
                 applicable, test_path = False, None
                 evidence = "DoobieLogic Sandbox is selected. Metrc dispatch is disabled. Change the facility operating mode in advanced settings to opt into Metrc Sandbox."
             elif metrc is None or not metrc.configured:
-                status, evidence, test_path = "blocked", "Metrc sandbox credentials, state and exact facility license must resolve before testing. Review the existing sandbox connection settings.", None
+                status, evidence, test_path = "blocked", "Metrc credentials, state and exact facility license must resolve before testing. Review the existing sandbox connection settings.", None
             elif not metrc.trusted_mapping and status != "blocked":
                 status, evidence = "needs_mapping", "Verify the exact facility, license, jurisdiction, credential and sandbox mapping in advanced settings."
         if key == "quickbooks" and status == "connected" and missing_items:

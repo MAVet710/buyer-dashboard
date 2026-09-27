@@ -24,7 +24,7 @@ class IntegrationConfiguration(TimestampMixin, Base):
         UniqueConstraint("scope_type", "scope_key", "provider", name="uq_integration_scope_provider"),
         CheckConstraint("scope_type in ('user','facility','platform')", name="ck_integration_scope_type"),
         CheckConstraint(
-            "provider in ('metrc','biotrack','quickbooks','doobie','ai_runtime','spacemail','metrc_sandbox','dutchie_sandbox','biotrack_sandbox','quickbooks_sandbox')",
+            "provider in ('metrc','biotrack','quickbooks','doobie','ai_runtime','spacemail','metrc_sandbox','dutchie_sandbox','biotrack_sandbox','quickbooks_sandbox','cultivation_network')",
             name="ck_integration_provider",
         ),
         CheckConstraint("status in ('not_connected','configured','connected','failed')", name="ck_integration_status"),

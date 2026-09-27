@@ -430,21 +430,21 @@ class MetrcFacilityOnboardingService:
             secret=user_secret,
             actor=actor,
         )
-        if environment == "sandbox" and source_vendor_credential is not None:
+        if source_vendor_credential is not None:
             vendor_secret = self.configurations.secret(source_vendor_credential)
             vendor_public = self.configurations.public(source_vendor_credential)
             vendor_config = dict(vendor_public.get("configuration") or {})
             vendor_config.update({
                 "state": state,
                 "license_number": discovered.license_number,
-                "environment": "sandbox",
+                "environment": environment,
                 "provider_facility_id": discovered.provider_facility_id,
                 "provider_capabilities": dict(discovered.provider_capabilities or {}),
             })
             self.configurations.save(
                 scope_type="facility",
-                scope_key=f"{organization_id}:{target.id}:sandbox",
-                provider="metrc_sandbox",
+                scope_key=f"{organization_id}:{target.id}:{environment}",
+                provider="metrc_sandbox" if environment == "sandbox" else "metrc",
                 organization_id=organization_id,
                 facility_id=target.id,
                 configuration=vendor_config,

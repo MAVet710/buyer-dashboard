@@ -64,12 +64,14 @@ def normalize_metric_value(metric: str, value: float, unit: str) -> tuple[str, f
     if not math.isfinite(numeric):
         raise ValueError("Measurement must be finite.")
 
-    if definition.unit == "C" and original_unit in {"F", "°F"}:
+    if definition.unit == "C" and original_unit in {"F", "Â°F"}:
         numeric = (numeric - 32) * 5 / 9
-    elif definition.unit == "C" and original_unit in {"C", "°C"}:
+    elif definition.unit == "C" and original_unit in {"C", "Â°C"}:
         pass
-    elif definition.unit == "mS/cm" and original_unit in {"uS/cm", "µS/cm"}:
+    elif definition.unit == "mS/cm" and original_unit in {"uS/cm", "ÂµS/cm"}:
         numeric /= 1000
+    elif definition.unit == "mS/cm" and original_unit == "dS/m":
+        pass  # Both units equal 0.1 siemens per meter.
     elif definition.unit == "L" and original_unit == "mL":
         numeric /= 1000
     elif definition.unit == "L" and original_unit == "US gal":
@@ -80,9 +82,9 @@ def normalize_metric_value(metric: str, value: float, unit: str) -> tuple[str, f
         numeric *= 60
     elif definition.unit == "L/min" and original_unit == "US gal/min":
         numeric *= 3.785411784
-    elif definition.unit == "umol/m2/s" and original_unit in {"µmol/m²/s", "umol/m²/s", "µmol/m2/s"}:
+    elif definition.unit == "umol/m2/s" and original_unit in {"Âµmol/mÂ²/s", "umol/mÂ²/s", "Âµmol/m2/s"}:
         pass
-    elif definition.unit == "mol/m2/day" and original_unit in {"mol/m²/day", "mol/m²/d", "mol/m2/d"}:
+    elif definition.unit == "mol/m2/day" and original_unit in {"mol/mÂ²/day", "mol/mÂ²/d", "mol/m2/d"}:
         pass
     elif definition.unit == "state" and original_unit in {"bool", "boolean"}:
         pass

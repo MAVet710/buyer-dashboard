@@ -230,6 +230,30 @@ jobs:
           name: passive-radio-software-acceptance
           path: artifacts/radio-browser
           retention-days: 7
+  connected-onboarding-browser:
+    name: Connected facility and sensor setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with: { node-version: "22", cache: pnpm, cache-dependency-path: frontend/pnpm-lock.yaml }
+      - run: pip install -r backend/requirements.txt pytest httpx
+      - run: pnpm install --frozen-lockfile
+        working-directory: frontend
+      - run: pnpm exec playwright install --with-deps chromium
+        working-directory: frontend
+      - name: Actual React, migrated API and canonical import, synthetic providers only
+        run: python scripts/acceptance/run_connected_onboarding_browser.py --evidence-root artifacts/connected-onboarding
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: connected-onboarding-software-acceptance
+          path: artifacts/connected-onboarding
+          retention-days: 7
   containers:
     runs-on: ubuntu-latest
     steps:

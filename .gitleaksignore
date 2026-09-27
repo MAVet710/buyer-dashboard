@@ -1,0 +1,3 @@
+# Exact historical false positive: computed variables, no literal credential.
+# AST verified and repaired. No generic rule, file or future finding is exempted.
+7ca80631ad2a8ef89993ab95e55656a5de76b39c:backend/app/services/metrc_production_context.py:generic-api-key:49

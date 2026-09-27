@@ -1,0 +1,19 @@
+.cultivation-network-setup { margin-block: 1rem; padding: 1rem; border: 1px solid var(--border-color, #343b38); border-radius: 12px; min-width: 0; }
+.cultivation-network-setup form, .cultivation-network-setup fieldset { min-width: 0; max-width: 100%; }
+.cultivation-network-setup label { display: block; margin-block: .65rem; }
+.cultivation-network-setup input:not([type="checkbox"]), .cultivation-network-setup select { display: block; width: 100%; max-width: 100%; box-sizing: border-box; }
+.cultivation-network-setup p, .cultivation-network-setup h5 { overflow-wrap: anywhere; }
+.cultivation-network-setup button { margin: .35rem .35rem .35rem 0; max-width: 100%; white-space: normal; }
+.network-device { margin-block: .8rem; padding: .9rem; border: 1px solid var(--border-color, #343b38); border-radius: 10px; min-width: 0; }
+.network-device h5 { margin: 0 0 .6rem; font-size: 1rem; }
+.network-measurement { border-top: 1px solid var(--border-color, #343b38); padding-block: .6rem; }
+.guided-metrc fieldset { min-width: 0; }
+.guided-metrc label { display: block; margin-block: .6rem; }
+.guided-metrc input:not([type="checkbox"]), .guided-metrc select { display: block; width: 100%; box-sizing: border-box; }
+.guided-metrc p { overflow-wrap: anywhere; }
+.guided-metrc .table-scroll { width: 100%; overflow: auto; }
+@media (max-width: 600px) {
+  .cultivation-network-setup { padding: .75rem; }
+  .cultivation-network-setup button { width: 100%; margin-inline: 0; }
+  .network-device { padding: .65rem; }
+}

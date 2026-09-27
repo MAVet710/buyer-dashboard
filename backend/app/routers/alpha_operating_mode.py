@@ -15,13 +15,14 @@ ADMIN_ROLES = {"dev", "admin"}
 
 class AlphaOperatingModeSave(BaseModel):
     mode: str = Field(max_length=32)
+    production_confirmed: bool = False
 
     @field_validator("mode")
     @classmethod
     def valid_mode(cls, value: str) -> str:
         normalized = str(value or "").strip().casefold()
-        if normalized not in {"doobielogic_sandbox", "metrc_sandbox"}:
-            raise ValueError("Choose DoobieLogic Sandbox or Metrc Sandbox.")
+        if normalized not in {"doobielogic_sandbox", "metrc_sandbox", "metrc_production"}:
+            raise ValueError("Choose DoobieLogic Sandbox, Metrc Sandbox or Metrc Production.")
         return normalized
 
 
@@ -51,6 +52,10 @@ def set_mode(
     engine: Engine = Depends(get_engine),
 ):
     _require_admin(context)
+    if payload.mode == "metrc_production" and not payload.production_confirmed:
+        raise HTTPException(422,"Confirm that this is a real production facility, not sandbox data.")
+    from ..permissions import require_permission
+    require_permission(context,engine,"integrations.manage_metrc")
     try:
         return AlphaOperatingModeService(engine).set_mode(
             context.organization_id,

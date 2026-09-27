@@ -13,6 +13,11 @@ async function fixture(page: Page) {
     if (path.endsWith("/integration-wizard/providers/quickbooks")) { skipped = route.request().postDataJSON().skipped; return route.fulfill({ json: { skipped } }); }
     if (path.endsWith("/integrations/metrc/test")) { failed = true; return route.fulfill({ json: { ...connection(), result: { ok: false, message: "Synthetic provider denial" } } }); }
     if (path.endsWith("/integrations/metrc") && route.request().method() === "POST") { saved = true; return route.fulfill({ json: connection() }); }
+    if (path === "/api/v1/integration-wizard/metrc-setup") return route.fulfill({ json: {
+      facility: { id: "one", name: "Test Facility", license_number: "TEST-LICENSE" }, mode: "metrc_sandbox", environment: "sandbox", state: "MA", can_manage: true,
+      user_key_saved: saved, platform_key_ready: false, configured: false, trusted_mapping: false, production_available: true, production_writes_enabled: false,
+      can_manage_platform: false, run: null, resources: [], full_baseline_ready: false,
+    } });
     if (path.endsWith("/integration-wizard")) return route.fulfill({ json: {
       facility: { id: "one", name: "Test Facility", license_number: "TEST-LICENSE", license_type: "Processor", capabilities: ["production", "commercial"] }, mode, step, can_manage: true,
       items: ["metrc", "quickbooks"].map(key => ({ key, label: key === "metrc" ? "Metrc" : "QuickBooks", required: key === "metrc", status: key === "quickbooks" && skipped ? "optional_skipped" : failed && key === "metrc" ? "blocked" : "needs_validation", evidence: failed && key === "metrc" ? "The last provider validation failed." : "No successful validation recorded.", last_validated_at: null, environment: "sandbox", test_path: `/api/v1/${key === "metrc" ? "integrations" : "native-integrations"}/${key}/test`, settings_path: `/settings/integrations?provider=${key}`, mapping_route: "Integrations", managed_entities: [], manual_mapping_required: [] })),

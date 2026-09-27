@@ -221,3 +221,25 @@ def test_post_harvest_frontend_keeps_operator_surface_simple_and_audit_depth_und
     assert 'managerRoles = new Set(["dev", "admin", "supervisor", "qa"])' in ui
     assert '@cultivation_router.post("/post-harvest/{batch_id}/weights")' in router
     assert 'context.role.casefold() in {"dev", "admin", "supervisor", "qa"}' in router
+
+
+def test_repeated_weight_updates_remain_ordered_when_server_clock_is_frozen(monkeypatch):
+    from datetime import datetime, timezone
+    from modules.cultivation import post_harvest
+    monkeypatch.setattr(post_harvest, 'utc_now', lambda: datetime(2026, 9, 27, 0, 0, tzinfo=timezone.utc))
+    # Both writes use exactly the same server clock. The real append-only path
+    # must still expose the second values without relying on random UUID order.
+    test_trim_operator_weight_updates_are_append_only_and_latest_value_drives_current_state()
+
+
+@pytest.mark.parametrize('value', [float('nan'), float('inf'), float('-inf')])
+def test_nonfinite_post_harvest_weights_are_rejected(value):
+    engine = _engine()
+    organization_id, facility_id = _scope(engine)
+    _drying_harvest(engine, organization_id, facility_id)
+    service = PostHarvestService(engine)
+    batch = service.sync_open_harvests(organization_id, facility_id, actor='operator')[0]
+    with pytest.raises(ValueError, match='finite'):
+        service.record_weights(organization_id, facility_id, batch['id'], actor='operator',
+                               measurements=[{'weight_type': 'wip', 'quantity_g': value}])
+    assert service.detail(organization_id, facility_id, batch['id'])['weight_event_count'] == 0

@@ -15,6 +15,7 @@ async function mock(page: Page, manage = true) {
     const path = new URL(route.request().url()).pathname;
     const post = route.request().method() === "POST";
     if (post) writes.push({ path, body: route.request().postDataJSON() });
+    if (path === "/api/v1/cultivation-networks") return route.fulfill({ json: { host_ready: false, can_manage: false, mqtt_available: false, connections: [], truncated: false } });
     if (path === "/api/v1/cultivation-radio/status" && !post) return route.fulfill({ json: { enabled: false, host_matches: false, can_manage: manage, receivers: [], runtime_error: null, limitations: [] } });
     if (path === `${base}/workspace`) return route.fulfill({ json: { rooms: [room], cycles: created ? [cycle, { ...cycle, id: "created", display_name: "Saved cycle" }] : [cycle], connections: [connection], recipes, truncated: false, can_manage: manage, can_manage_connections: manage, decision_support_only: true } });
     if (path === `${base}/rooms/r2`) return route.fulfill({ json: { room, plants: [], cycles: [cycle], environment: { readings: [] }, edge_summary: null, events: [], work: [], costs: { total: null, allocation_status: "unknown" }, truncated: false, can_manage: manage } });

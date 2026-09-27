@@ -20,6 +20,7 @@ SUPPORTED_PROVIDERS = {
     "doobie",
     "ai_runtime",
     "spacemail",
+    "cultivation_network",
     "metrc_sandbox",
     "dutchie_sandbox",
     "biotrack_sandbox",

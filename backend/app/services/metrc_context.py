@@ -69,6 +69,10 @@ def resolve_metrc_context(
         context.facility_id,
     )
 
+    if mode.effective_mode == "metrc_production":
+        from .metrc_production_context import resolve_production_metrc
+        return resolve_production_metrc(engine, settings, context)
+
     if not str(settings.integration_encryption_key or "").strip():
         return None, MetrcContext(
             configured=False,

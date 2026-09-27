@@ -37,7 +37,7 @@ def _require_metrc_alpha_mode(context: RequestContext, engine: Engine) -> None:
         context.organization_id,
         context.facility_id,
     )
-    if not mode.metrc_enabled:
+    if mode.effective_mode != "metrc_sandbox":
         raise HTTPException(
             409,
             "DoobieLogic Sandbox is active. Select Metrc Sandbox before provisioning, discovering, or syncing Metrc provider data.",

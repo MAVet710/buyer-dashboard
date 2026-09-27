@@ -16,7 +16,7 @@ TABLE = 'cultivation_radio_bindings'
 
 
 def test_radio_head_and_least_privilege(pg):
-    assert pg.scalar(sa.text('SELECT version_num FROM alembic_version')) == '0088_cultivation_radio'
+    assert pg.scalar(sa.text('SELECT version_num FROM alembic_version')) == '0089_connected_onboarding'
     assert pg.scalar(sa.text("SELECT relrowsecurity FROM pg_class WHERE oid='public.cultivation_radio_bindings'::regclass"))
     assert pg.scalar(sa.text("SELECT has_table_privilege('doobielogic_render_runtime', :table, 'SELECT,INSERT')"), {'table':TABLE})
     for column in ('active', 'enabled_at', 'version'):
