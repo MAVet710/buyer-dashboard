@@ -9,7 +9,11 @@ import {
   type HelpArticle,
 } from "../lib/helpContent";
 import { MarketingPage } from "../components/marketing/MarketingPage";
+import { HelpWalkthrough } from "../components/HelpWalkthrough";
+import { helpWalkthroughByPath } from "../lib/help";
+import { helpStepCaptures } from "../lib/help/visuals";
 import "../help-center.css";
+import "../help-walkthrough.css";
 
 const icons = {
   "getting-started": Workflow, home: Home, buying: ShoppingCart, inventory: Boxes,
@@ -17,27 +21,6 @@ const icons = {
   reports: BarChart3, settings: Settings, intelligence: Bot,
 } as const;
 
-const sectionVisuals: Record<string, string[]> = {
-  "/help/getting-started": [
-    "/help/screens/getting-started-guide.webp",
-    "/help/screens/settings-integrations-guide.webp",
-    "/help/screens/home-guide.webp",
-  ],
-  "/help/buying": [
-    "/help/screens/buying-recommendations-guide.webp",
-    "/help/screens/buying-planning-settings-guide.webp",
-  ],
-  "/help/inventory": [
-    "/help/screens/inventory-catalog-admin-guide.webp",
-    "/help/screens/inventory-receiving-guide.webp",
-    "/help/screens/inventory-transfers-guide.webp",
-    "/help/screens/inventory-audits-guide.webp",
-  ],
-  "/help/cultivation": [
-    "/help/screens/cultivation-guide.webp",
-    "/help/screens/cultivation-post-harvest-guide.webp",
-  ],
-};
 
 function normalizedPath() {
   const raw = window.location.pathname || "/help";
@@ -113,7 +96,7 @@ function HelpLanding() {
               <article className="help-category-card" key={category.id}>
                 <div className="help-category-icon"><Icon size={23}/></div>
                 <h3>{category.title}</h3><p>{category.description}</p>
-                <div className="help-category-links">{visible.slice(0, 8).map(path => (
+                <div className="help-category-links">{visible.map(path => (
                   <a href={path} key={path}>{articleTitle(path)} <ArrowRight size={13}/></a>
                 ))}</div>
               </article>
@@ -124,7 +107,7 @@ function HelpLanding() {
 
       <section className="help-proof mh-container">
         <div><span className="mh-eyebrow">Built from the product</span><h2>See the screen.<br/>Then do the work.</h2>
-          <p>What you see here is what you will see in the app. Same screens, same buttons, same workflow.</p></div>
+          <p>Use the walkthrough to find the right screen, understand the fields, and check what happened after each action. Screenshots show real examples from our demonstration workspace.</p></div>
         <div className="help-proof-shots">
           <img src="/help/screens/inventory-guide.webp" alt="Real DoobieLogic Inventory workspace" loading="lazy"/>
           <img src="/help/screens/extraction-guide.webp" alt="Real DoobieLogic Extraction workspace" loading="lazy"/>
@@ -146,6 +129,11 @@ function GuideLink({ article }: { article: HelpArticle }) {
 
 function HelpArticleView({ article }: { article: HelpArticle }) {
   const category = helpCategoryById.get(article.category);
+  const guide = helpWalkthroughByPath.get(article.path);
+  const needsFreshReference = new Set(['/help/cultivation', '/help/doobie-agent',
+    '/help/inventory/product-360', '/help/settings/admin', '/help/compliance/traceability']);
+  const showReference = article.screenshot && !needsFreshReference.has(article.path)
+    && !helpStepCaptures[article.path];
   const related = (article.related ?? []).map(path => helpArticleByPath.get(path)).filter((item): item is HelpArticle => Boolean(item));
 
   return (
@@ -168,38 +156,25 @@ function HelpArticleView({ article }: { article: HelpArticle }) {
             <header className="help-article-header">
               <span className="mh-eyebrow">{category?.title ?? "DoobieLogic Help"}</span>
               <h1>{article.title}</h1><p>{article.summary}</p>
+              {guide ? <div className="help-guide-tools"><span>{guide.steps.length} steps · Field guidance · Troubleshooting</span><button type="button" onClick={() => window.print()}>Print guide</button></div> : null}
               {article.navPath ? <div className="help-nav-path"><strong>In DoobieLogic</strong><span>{article.navPath}</span></div> : null}
             </header>
 
-            {article.screenshot ? <figure className="help-workspace-shot">
+            {showReference ? <figure className="help-workspace-shot">
               <img src={article.screenshot} alt={article.screenshotAlt ?? article.title} />
-              <figcaption><span>REAL PRODUCT CAPTURE</span> Captured from the live DoobieLogic DEV Sandbox. Demonstration workspace only.</figcaption>
+              <figcaption><span>WORKSPACE REFERENCE</span> Real demonstration-workspace capture from September 25, 2026. Follow the current detailed steps below.</figcaption>
             </figure> : null}
 
-            {article.thingsToKnow?.length ? <section className="help-callout">
+            {!guide && article.thingsToKnow?.length ? <section className="help-callout">
               <h2>Good to know</h2><ul>{article.thingsToKnow.map(item => <li key={item}>{item}</li>)}</ul>
             </section> : null}
 
-            <div className="help-article-sections">
-              {article.sections.map((section, index) => {
-                const sectionImage = sectionVisuals[article.path]?.[index];
-                return <section id={"step-" + (index + 1)} key={section.title}>
-                  <span className="help-section-number">{String(index + 1).padStart(2, "0")}</span>
-                  <h2>{section.title}</h2>{section.body ? <p>{section.body}</p> : null}
-                  {sectionImage ? <figure className="help-section-shot">
-                    <img src={sectionImage} alt={section.title + " in DoobieLogic"} loading="lazy" />
-                    <figcaption>THIS STEP · REAL DOOBIELOGIC SCREEN</figcaption>
-                  </figure> : null}
-                  {section.steps?.length ? <ol>{section.steps.map(step => <li key={step}>{step}</li>)}</ol> : null}
-                  {section.notes?.length ? <div className="help-note"><strong>Watch for</strong><ul>{section.notes.map(note => <li key={note}>{note}</li>)}</ul></div> : null}
-                </section>;
-              })}
-            </div>
+            {guide ? <HelpWalkthrough path={article.path} guide={guide}/> : null}
 
             <section className="help-finish">
               <div><span className="mh-eyebrow">Ready to try it?</span><h2>Open DoobieLogic and follow along.</h2>
                 <p>Keep this guide open beside the app and work through it in the facility where the record actually lives.</p></div>
-              <a className="mh-button" href={APP_URL}>Open DoobieLogic <ArrowRight size={17}/></a>
+              <a className="mh-button" href={guide ? new URL(guide.appPath, APP_URL).href : APP_URL}>Open this workspace <ArrowRight size={17}/></a>
             </section>
 
             {related.length ? <section className="help-related"><span className="mh-eyebrow">Related guides</span>

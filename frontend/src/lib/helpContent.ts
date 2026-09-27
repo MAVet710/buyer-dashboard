@@ -1,3 +1,5 @@
+import { helpWalkthroughs, walkthroughSearchText } from "./help";
+
 export type HelpSection = {
   title: string;
   body?: string;
@@ -48,7 +50,7 @@ const article = (
   thingsToKnow, sections, related,
 });
 
-export const helpArticles: HelpArticle[] = [
+const originalHelpArticles: HelpArticle[] = [
   article("/help/getting-started","getting-started","Getting started with DoobieLogic","Get your bearings, make sure you're in the right facility, and set up the view you actually need.","Log in → confirm Access Context","home",[
     "DoobieLogic keeps organization, facility, and operation context visible while you work.",
     "The workspaces available to you depend on your role and the capabilities enabled for the selected facility.",
@@ -429,7 +431,7 @@ export const helpArticles: HelpArticle[] = [
   ],["/help/home","/help/compliance/qa","/help/settings/integrations"]),
 ];
 
-export const helpCategories: HelpCategory[] = [
+const originalHelpCategories: HelpCategory[] = [
   {id:"getting-started",title:"Getting Started",description:"Sign in, choose the right operating context, and learn how DoobieLogic is organized.",articles:["/help/getting-started"]},
   {id:"home",title:"Home & Operations",description:"What's happening today, what's waiting on the team, and where the bigger problems are.",articles:["/help/home","/help/home/control-towers"]},
   {id:"buying",title:"Buying",description:"Figure out what to buy, build the PO, watch the budget, and learn from what actually sold.",articles:["/help/buying","/help/buying/recommendations","/help/buying/purchase-orders","/help/buying/budget","/help/buying/delivery-performance","/help/buying/planning-settings"]},
@@ -443,6 +445,19 @@ export const helpCategories: HelpCategory[] = [
   {id:"intelligence",title:"Doobie Agent",description:"Ask what's going on, see why Doobie thinks that, and go straight to the work.",articles:["/help/doobie-agent"]},
 ];
 
+// Detailed guides are the source for visible instructions, titles and search.
+export const helpArticles: HelpArticle[] = Object.entries(helpWalkthroughs).map(([path, guide]) => {
+  const previous = originalHelpArticles.find(item => item.path === path);
+  return { ...previous, path, category: guide.category, title: guide.title,
+    summary: guide.summary, navPath: guide.navPath, thingsToKnow: guide.beforeYouStart,
+    sections: guide.steps.map(step => ({ title: step.title, steps: step.instructions, notes: step.warning ? [step.warning] : [] })),
+    related: previous?.related ?? [],
+  };
+});
+export const helpCategories: HelpCategory[] = originalHelpCategories.map(category => ({
+  ...category, articles: helpArticles.filter(item => item.category === category.id).map(item => item.path),
+}));
+
 export const helpArticleByPath = new Map(helpArticles.map(item => [item.path, item]));
 export const helpCategoryById = new Map(helpCategories.map(item => [item.id, item]));
 
@@ -454,6 +469,7 @@ export function helpSearch(query: string): HelpArticle[] {
     item.summary,
     item.category,
     item.navPath ?? "",
+    walkthroughSearchText(item.path),
     ...item.thingsToKnow ?? [],
     ...item.sections.flatMap(section => [section.title, section.body ?? "", ...(section.steps ?? []), ...(section.notes ?? [])]),
   ].join(" ").toLocaleLowerCase().includes(term));

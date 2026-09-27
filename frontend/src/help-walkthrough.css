@@ -1,0 +1,91 @@
+.help-walkthrough { font-size: 16px; line-height: 1.7; }
+.help-walkthrough .help-callout li { font-size: 15px; color: #c9c4bd; }
+.help-step-index { padding: 22px 25px; margin: 24px 0 38px; border: 1px solid #38312a; border-radius: 12px; background: #14120f; }
+.help-step-index summary { cursor: pointer; font-weight: 700; color: #f2ece4; }
+.help-step-index ol { padding-left: 24px; margin: 15px 0; }
+.help-step-index li { margin: 7px 0; }
+.help-step-index a { color: #eab07d; text-decoration: none; }
+.help-step-index > a { display: inline-block; margin-right: 22px; font-size: 14px; }
+.help-step-index a:hover { text-decoration: underline; }
+.help-detailed-steps > section { scroll-margin-top: 110px; }
+.help-detailed-steps .help-section-number { font-size: 12px; letter-spacing: .08em; }
+.help-step-instructions p { color: #cbc6c0; font-size: 16px; max-width: none; margin: 13px 0; }
+.help-step-warning { padding: 18px 21px; border-left: 3px solid #ef8b49; border-radius: 6px; background: #21170f; margin: 20px 0; }
+.help-step-warning strong { color: #f8be8f; }
+.help-step-warning p { color: #ded0c3; margin: 6px 0 0; }
+.help-fields-wrap { margin: 24px 0; border: 1px solid #37342e; border-radius: 10px; overflow: hidden; }
+.help-fields { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 14px; }
+.help-fields caption { padding: 14px 18px; background: #1b1713; color: #f1d8bf; text-align: left; font-weight: 700; }
+.help-fields th, .help-fields td { padding: 16px 18px; text-align: left; vertical-align: top; border-top: 1px solid #302d28; overflow-wrap: anywhere; }
+.help-fields thead { color: #bbb4ac; font-size: 12px; }
+.help-fields th:first-child { width: 29%; }
+.help-fields tbody th { color: #ece6de; font-weight: 600; }
+.help-fields th small { display: block; margin-top: 7px; color: #a69d91; font-weight: 400; line-height: 1.45; }
+.help-fields td { color: #c9c2b9; }
+.help-fields .help-field-example { margin: 9px 0 0; color: #bda88d; font-size: 13px; }
+.help-step-result { display: flex; align-items: flex-start; gap: 12px; padding: 18px 20px; border: 1px solid #304637; border-radius: 10px; background: #101c16; margin-top: 22px; }
+.help-step-result > svg { flex: 0 0 auto; margin-top: 4px; color: #82c398; }
+.help-step-result strong { color: #c4e0ca; font-size: 14px; }
+.help-step-result p { margin: 6px 0 0; color: #c5d0c7; font-size: 15px; }
+.help-step-capture { margin: 26px 0; border: 1px solid #453626; border-radius: 12px; overflow: hidden; background: #111410; }
+.help-image-open { display: block; width: 100%; padding: 0; border: 0; background: none; text-align: left; color: #efc197; cursor: zoom-in; }
+.help-image-open img { display: block; width: 100%; height: auto; }
+.help-image-open > span { display: flex; align-items: center; gap: 8px; padding: 10px 16px; font-size: 12px; }
+.help-step-capture figcaption { padding: 12px 16px; border-top: 1px solid #2e322a; color: #bab7ad; font-size: 13px; line-height: 1.55; }
+.help-image-dialog { width: min(1440px, 94vw); max-width: 94vw; max-height: 94vh; padding: 48px 16px 16px; background: #0d110e; color: #f3eee6; border: 1px solid #71604c; border-radius: 12px; overflow: auto; }
+.help-image-dialog::backdrop { background: rgba(0,0,0,.86); }
+.help-image-dialog > img { display: block; width: 100%; height: auto; }
+.help-image-dialog p { margin: 16px 4px 0; font-size: 14px; }
+.help-image-close { position: absolute; right: 10px; top: 8px; padding: 6px; background: #272a25; border: 1px solid #6c675c; border-radius: 6px; color: #fff; cursor: pointer; }
+.help-completion, .help-troubleshooting { padding: 28px 0; scroll-margin-top: 110px; border-top: 1px solid #36302b; }
+.help-completion h2, .help-troubleshooting h2 { color: #f1ece5; font-size: 28px; }
+.help-completion ul { padding: 0; list-style: none; }
+.help-completion li { display: flex; align-items: flex-start; gap: 12px; margin: 14px 0; color: #c7c9be; }
+.help-completion li svg { flex-shrink: 0; margin-top: 5px; color: #88b990; }
+.help-troubleshooting details { margin: 12px 0; padding: 17px 20px; background: #141612; border: 1px solid #393a30; border-radius: 8px; }
+.help-troubleshooting summary { color: #e8d1b6; cursor: pointer; font-weight: 600; }
+.help-troubleshooting p { margin: 14px 0 0; color: #c4c2b8; }
+.help-guide-tools { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; align-items: center; }
+.help-guide-tools button { border: 1px solid #514332; background: #181510; color: #e7caaa; border-radius: 7px; padding: 8px 14px; cursor: pointer; }
+.help-guide-tools span { color: #aaa294; font-size: 12px; }
+@media(max-width: 650px) {
+  .help-fields th, .help-fields td { padding: 12px; }
+  .help-fields th:first-child { width: 34%; }
+  .help-step-index { padding: 18px; }
+  .help-walkthrough, .help-step-instructions p { font-size: 15px; }
+  .help-detailed-steps h2 { font-size: 25px; }
+}
+@media print {
+  .help-article-nav, .help-guide-tools, .help-finish, .help-related,
+  .help-step-index, .help-image-dialog, .help-image-open > span { display: none !important; }
+  .help-article-layout { display: block !important; }
+  .help-article, .help-walkthrough, .help-callout, .help-step-warning,
+  .help-step-result, .help-fields-wrap, .help-troubleshooting details { background: white !important; color: black !important; box-shadow: none !important; }
+  .help-walkthrough p, .help-walkthrough li, .help-walkthrough h2,
+  .help-walkthrough strong, .help-walkthrough th, .help-walkthrough td,
+  .help-walkthrough small, .help-walkthrough caption, .help-walkthrough summary { color: black !important; background: transparent !important; }
+  .help-fields tr, .help-step-result, .help-step-warning { break-inside: avoid; }
+  .help-detailed-steps h2 { break-after: avoid; }
+  .help-troubleshooting details > p { display: block !important; }
+}
+/* Long task names must remain readable on narrow screens. */
+.help-article-header h1, .help-detailed-steps h2 { overflow-wrap: anywhere; }
+.help-article, .help-walkthrough, .help-fields-wrap { min-width: 0; }
+.help-breadcrumbs, .help-guide-tools, .help-step-index a { overflow-wrap: anywhere; }
+@media (max-width: 650px) {
+  .help-article-header h1 { font-size: clamp(30px, 9vw, 40px); line-height: 1.12; }
+}
+/* Examples and source-field identifiers must wrap, not widen a grid track. */
+.help-walkthrough { overflow-wrap: anywhere; }
+.help-detailed-steps { grid-template-columns: minmax(0, 1fr); width: 100%; min-width: 0; }
+.help-detailed-steps > section, .help-step-result > div { min-width: 0; }
+.help-step-capture, .help-image-open { max-width: 100%; min-width: 0; }
+/* Override application table defaults: prose must not be clipped as a data cell. */
+.help-walkthrough .help-fields th, .help-walkthrough .help-fields td {
+  white-space: normal; overflow-wrap: anywhere; word-break: normal;
+}
+.help-walkthrough .help-fields tbody th {
+  font-size: 13px; line-height: 1.5; text-transform: none; letter-spacing: normal;
+}
+.help-walkthrough .help-fields tbody th small { font-size: 12px; }
+.help-walkthrough .help-fields td, .help-walkthrough .help-fields td p { white-space: normal; }
