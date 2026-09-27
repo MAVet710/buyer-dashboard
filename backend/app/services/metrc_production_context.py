@@ -45,8 +45,11 @@ def resolve_production_metrc(engine, settings, context):
     for source in (vendor_config.get('provider_capabilities'),config.get('provider_capabilities')):
         if isinstance(source,dict):
             capabilities.update({key:value for key,value in source.items() if isinstance(key,str) and type(value) is bool})
+    if not configured:
+        user_key = ''
+        vendor_key = ''
     return service,MetrcContext(configured=configured,state=state,license_number=license_number,
-        user_api_key=user_key if configured else '',integrator_api_key=vendor_key if configured else '',
+        user_api_key=user_key,integrator_api_key=vendor_key,
         environment='production',status='connected' if connected else 'configured',trusted_mapping=trusted,
         provider_capabilities=capabilities,row=user,mapping=mapping,provider_dispatch=dispatch,
         message='Production connection verified. Each write still requires its supported operation and approval checks.'
