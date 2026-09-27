@@ -11,7 +11,7 @@ from modules.regulatory.models import RegulatoryFacilityMapping
 from .models import AlphaOperatingMode
 
 
-ALPHA_OPERATING_MODES = ("doobielogic_sandbox", "metrc_sandbox")
+ALPHA_OPERATING_MODES = ("doobielogic_sandbox", "metrc_sandbox", "metrc_production")
 
 
 @dataclass(frozen=True)
@@ -25,7 +25,7 @@ class AlphaOperatingModeState:
 
     @property
     def metrc_enabled(self) -> bool:
-        return self.effective_mode == "metrc_sandbox"
+        return self.effective_mode in {"metrc_sandbox", "metrc_production"}
 
     def public(self) -> dict:
         return {
@@ -34,7 +34,7 @@ class AlphaOperatingModeState:
             "explicit": self.explicit,
             "source": self.source,
             "metrc_sandbox_mapping_available": self.metrc_sandbox_mapping_available,
-            "production_writes_enabled": False,
+            "production_writes_enabled": self.production_writes_enabled,
             "choices": [
                 {
                     "id": "doobielogic_sandbox",
@@ -46,10 +46,13 @@ class AlphaOperatingModeState:
                     "label": "Metrc Sandbox",
                     "description": "Use the connected Massachusetts Metrc sandbox. Provider writes remain governed and sandbox-only.",
                 },
+                {"id": "metrc_production", "label": "Metrc Production",
+                 "description": "Connect the licensed production facility. Operation-specific approval and reconciliation gates remain required. Sandbox evidence cannot be mixed into this facility."},
             ],
             "message": (
                 "DoobieLogic Sandbox is active. Saved Metrc credentials remain encrypted but provider dispatch is disabled."
                 if self.effective_mode == "doobielogic_sandbox"
+                else "Metrc Production is selected. A verified production connection, exact facility mapping and supported operation contract are still required." if self.effective_mode == "metrc_production"
                 else "Metrc Sandbox is active. Provider operations still require a trusted facility mapping and valid sandbox credentials."
             ),
         }
@@ -104,6 +107,7 @@ class AlphaOperatingModeService:
                 return AlphaOperatingModeState(
                     selected_mode=row.mode,
                     effective_mode=row.mode,
+                    production_writes_enabled=False,
                     explicit=True,
                     source="explicit",
                     metrc_sandbox_mapping_available=bool(mapping),
@@ -127,10 +131,15 @@ class AlphaOperatingModeService:
     ) -> AlphaOperatingModeState:
         normalized = str(mode or "").strip().casefold()
         if normalized not in ALPHA_OPERATING_MODES:
-            raise ValueError("Alpha operating mode must be DoobieLogic Sandbox or Metrc Sandbox.")
+            raise ValueError("Choose DoobieLogic Sandbox, Metrc Sandbox or Metrc Production.")
 
         with self.sessions.begin() as session:
+            session.execute(select(Facility.id).where(Facility.id==facility_id, Facility.organization_id==organization_id).with_for_update())
             self._facility(session, organization_id, facility_id)
+            if normalized != "doobielogic_sandbox":
+                from .environment_guard import require_environment_isolation
+                require_environment_isolation(session, organization_id, facility_id,
+                    "production" if normalized == "metrc_production" else "sandbox")
             row = session.scalar(
                 select(AlphaOperatingMode)
                 .where(

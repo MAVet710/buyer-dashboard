@@ -23,7 +23,7 @@ class AlphaOperatingMode(TimestampMixin, Base):
             name="uq_alpha_operating_mode_facility",
         ),
         CheckConstraint(
-            "mode in ('doobielogic_sandbox','metrc_sandbox')",
+            "mode in ('doobielogic_sandbox','metrc_sandbox','metrc_production')",
             name="ck_alpha_operating_mode_mode",
         ),
         Index("ix_alpha_operating_mode_scope", "organization_id", "facility_id"),

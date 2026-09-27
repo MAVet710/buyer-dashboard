@@ -90,6 +90,8 @@ from .routers.buyer_parity_actions import router as buyer_parity_actions_router
 from .routers.slow_movers_parity import router as slow_movers_parity_router
 from .routers.executive_reports import router as executive_reports_router
 from .routers.adoption import router as adoption_router
+from .routers.guided_metrc_setup import router as guided_metrc_setup_router
+from .routers.cultivation_networks import router as cultivation_networks_router
 from .routers.coman_parity import router as coman_parity_router
 from .routers.analytics import router as analytics_router
 from .routers.control_tower import router as control_tower_router, public_router as commerce_portal_router
@@ -157,6 +159,7 @@ async def lifespan(application: FastAPI):
     from .services.cultivation_maintenance_runtime import start_host_maintenance, stop_maintenance
     maintenance = None
     radio = None
+    networks = None
     try:
         maintenance = start_host_maintenance(engine)
         application.state.cultivation_maintenance = maintenance
@@ -167,8 +170,20 @@ async def lifespan(application: FastAPI):
         except RadioConfigError:
             logger.warning("Cultivation radio disabled: invalid or unavailable host configuration")
         application.state.cultivation_radio = radio
+        from .services.cultivation_network_runtime import start_host_networks
+        from modules.cultivation.network.contracts import NetworkError
+        try:
+            networks = start_host_networks(engine, settings.integration_encryption_key)
+        except NetworkError:
+            logger.warning("Cultivation networks disabled: unavailable host configuration")
+        application.state.cultivation_networks = networks
         yield
     finally:
+        if networks is not None:
+            from asyncio import to_thread
+            from .services.cultivation_network_runtime import stop_host_networks
+            if not await to_thread(stop_host_networks):
+                logger.warning("Cultivation networks are still stopping; replacement remains blocked")
         if radio is not None:
             from asyncio import to_thread
             from .services.cultivation_radio_runtime import stop_host_radio
@@ -396,6 +411,8 @@ app.include_router(buyer_parity_actions_router, prefix=settings.api_prefix)
 app.include_router(slow_movers_parity_router, prefix=settings.api_prefix)
 app.include_router(executive_reports_router, prefix=settings.api_prefix)
 app.include_router(adoption_router, prefix=settings.api_prefix)
+app.include_router(guided_metrc_setup_router, prefix=settings.api_prefix)
+app.include_router(cultivation_networks_router, prefix=settings.api_prefix)
 app.include_router(coman_parity_router, prefix=settings.api_prefix)
 app.include_router(analytics_router, prefix=settings.api_prefix)
 

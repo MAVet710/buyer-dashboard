@@ -16,7 +16,7 @@ export type Evidence = Record<string, unknown>;
 export type LatestReading = {
   connection_id: string; source_device_id: string; source_channel: string; device_id: string; sensor_id: string; metric: string;
   value: number | null; unit: string | null; original_value: number | string | null; original_unit: string | null;
-  observed_at: string | null; received_at: string; data_age_seconds: number | null; latency_seconds: number | null;
+  timestamp_basis?: string | null; observed_at: string | null; received_at: string; data_age_seconds: number | null; latency_seconds: number | null;
   quality: string | null; state: string; reason: string | null; freshness: string; status: string;
   snapshot: { organization_id: string; facility_id: string; connection_id: string; room_id: string; device_id: string; sensor_id: string; mapping_revision: string | number; metric: string; effective_from: string; effective_to: string; zone_id?: string | null; cycle_id?: string | null; stage_id?: string | null; recipe_revision?: string | number | null; target_min?: number | null; target_max?: number | null; threshold_seconds?: number | null };
 };

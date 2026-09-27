@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+import math
 
-from sqlalchemy import CheckConstraint, DateTime, Engine, ForeignKey, Index, String, Text, UniqueConstraint, select
+from sqlalchemy import CheckConstraint, DateTime, Engine, ForeignKey, Index, String, Text, UniqueConstraint, select, func, text
 from sqlalchemy.orm import Mapped, mapped_column, sessionmaker
 
 from modules.coman.models import Base, TimestampMixin, new_id, utc_now
@@ -199,7 +200,9 @@ class PostHarvestService:
         if target not in _STAGE_ORDER:
             raise ValueError("Unsupported post-harvest stage.")
         with self.sessions.begin() as session:
-            batch = self._require_batch(session, organization_id, facility_id, batch_id)
+            if session.bind.dialect.name == 'sqlite':
+                session.execute(text('BEGIN IMMEDIATE'))
+            batch = self._require_batch(session, organization_id, facility_id, batch_id, lock=True)
             current = batch.stage
             if _STAGE_ORDER[target] < _STAGE_ORDER[current]:
                 raise ValueError("Post-harvest stages are forward-only. Reopening a locked stage requires a governed correction workflow.")
@@ -258,12 +261,23 @@ class PostHarvestService:
             raise ValueError("Enter at least one post-harvest weight.")
         reason = correction_reason.strip()
         with self.sessions.begin() as session:
-            batch = self._require_batch(session, organization_id, facility_id, batch_id)
+            if session.bind.dialect.name == 'sqlite':
+                session.execute(text('BEGIN IMMEDIATE'))
+            batch = self._require_batch(session, organization_id, facility_id, batch_id, lock=True)
             if batch.stage == "ready" and not allow_locked_correction:
                 raise ValueError("This post-harvest batch is locked. A lead or manager must record a governed correction.")
             if batch.stage == "ready" and not reason:
                 raise ValueError("A correction reason is required when changing weights after the batch is ready.")
-            for measurement in measurements:
+            previous = session.scalar(select(func.max(CultivationPostHarvestWeightEvent.occurred_at)).where(
+                CultivationPostHarvestWeightEvent.batch_id == batch.id))
+            recorded_at = utc_now()
+            if recorded_at.tzinfo is None: recorded_at = recorded_at.replace(tzinfo=timezone.utc)
+            if previous is not None:
+                if previous.tzinfo is None: previous = previous.replace(tzinfo=timezone.utc)
+                recorded_at = max(recorded_at, previous + timedelta(microseconds=1))
+            # Server recording times are monotonically allocated under the batch
+            # lock. Random UUID order must never choose an older weight on a clock tie.
+            for ordinal, measurement in enumerate(measurements):
                 kind = str(measurement.get("weight_type") or "").strip().casefold()
                 if kind not in POST_HARVEST_WEIGHT_TYPES:
                     raise ValueError("Unsupported post-harvest weight type.")
@@ -271,6 +285,8 @@ class PostHarvestService:
                     quantity = float(measurement.get("quantity_g"))
                 except (TypeError, ValueError) as exc:
                     raise ValueError("Post-harvest weights must be numeric grams.") from exc
+                if not math.isfinite(quantity):
+                    raise ValueError("Post-harvest weights must be finite grams.")
                 if quantity < 0:
                     raise ValueError("Post-harvest weights cannot be negative.")
                 session.add(
@@ -281,6 +297,7 @@ class PostHarvestService:
                         stage=batch.stage,
                         weight_type=kind,
                         quantity_g=quantity,
+                        occurred_at=recorded_at + timedelta(microseconds=ordinal),
                         container_code=str(measurement.get("container_code") or "").strip(),
                         note=str(measurement.get("note") or "").strip(),
                         correction_reason=reason,
@@ -301,8 +318,11 @@ class PostHarvestService:
         return self.detail(organization_id, facility_id, batch_id)
 
     @staticmethod
-    def _require_batch(session, organization_id: str, facility_id: str, batch_id: str) -> CultivationPostHarvestBatch:
-        batch = session.get(CultivationPostHarvestBatch, batch_id)
+    def _require_batch(session, organization_id: str, facility_id: str, batch_id: str, lock: bool = False) -> CultivationPostHarvestBatch:
+        query = select(CultivationPostHarvestBatch).where(CultivationPostHarvestBatch.id == batch_id,
+            CultivationPostHarvestBatch.organization_id == organization_id,
+            CultivationPostHarvestBatch.facility_id == facility_id)
+        batch = session.scalar(query.with_for_update() if lock else query)
         if not batch or batch.organization_id != organization_id or batch.facility_id != facility_id:
             raise ValueError("Post-harvest batch was not found in the active facility.")
         return batch

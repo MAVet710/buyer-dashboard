@@ -11,7 +11,7 @@ ROOT=Path(__file__).resolve().parents[1]
 
 
 def test_one_head():
-    assert ScriptDirectory.from_config(Config(str(ROOT/'alembic.ini'))).get_heads()==['0088_cultivation_radio']
+    assert ScriptDirectory.from_config(Config(str(ROOT/'alembic.ini'))).get_heads()==['0089_connected_onboarding']
 
 
 def test_real_chain_preserves_existing_connection_and_refuses_evidence_downgrade(tmp_path):
@@ -57,6 +57,6 @@ def test_fresh_head(tmp_path):
     assert result.returncode==0,(result.stdout+result.stderr)[-5000:]
     engine=create_engine(url)
     with engine.connect() as c:
-        assert c.scalar(text('SELECT version_num FROM alembic_version'))=='0088_cultivation_radio'
+        assert c.scalar(text('SELECT version_num FROM alembic_version'))=='0089_connected_onboarding'
         assert 'cultivation_ingress_grants' in inspect(c).get_table_names()
     engine.dispose()

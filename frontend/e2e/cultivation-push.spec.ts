@@ -14,6 +14,7 @@ async function fixture(page: Page, options: Options = {}) {
   await page.route("**/api/**", async route => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
+    if (path === "/api/v1/cultivation-networks") return route.fulfill({ json: { host_ready: false, can_manage: false, mqtt_available: false, connections: [], truncated: false } });
     if (path === "/api/v1/cultivation-radio/status" && request.method() === "GET") return route.fulfill({ json: { enabled: false, host_matches: false, can_manage: !options.readOnly, receivers: [], runtime_error: null, limitations: [] } });
     if (request.method() !== "GET") writes.push({ path, body: request.postDataJSON(), facility: request.headers()["x-facility-id"] });
     if (path === `${base}/workspace`) return route.fulfill({ json: workspace });

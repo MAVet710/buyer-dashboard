@@ -46,7 +46,7 @@ class EnvironmentalZone(Scoped, Base):
 class TelemetryConnection(Scoped, Versioned, TimestampMixin, Base):
     __tablename__ = 'cultivation_telemetry_connections'
     __table_args__ = (UniqueConstraint('facility_id', 'provider', 'label', name='uq_ci_connection_label'),
-                      CheckConstraint("mode = 'file' OR (mode = 'push' AND provider = 'json')", name='ck_ci_connection_mode'),
+                      CheckConstraint("mode = 'file' OR (mode = 'push' AND provider = 'json') OR (mode = 'network' AND provider = 'json')", name='ck_ci_connection_mode'),
                       CheckConstraint("provider in ('json','csv','growlink')", name='ck_ci_connection_provider'),
                       CheckConstraint("status in ('configured','revoked')", name='ck_ci_connection_status'),
                       CheckConstraint('expected_interval_seconds IS NULL OR expected_interval_seconds BETWEEN 1 AND 2678400', name='ck_cp_expected_interval'),

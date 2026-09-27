@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost } from "../lib/api";
+import { GuidedMetrcSetup } from "../components/GuidedMetrcSetup";
+import { intelligenceScope } from "../components/cultivationIntelligenceTypes";
 import "./adoption.css";
 
 const wizardSteps = ["facility", "systems", "connect", "validate", "map", "evidence", "summary"] as const;
@@ -46,9 +48,10 @@ function GuidedFlow({ data, onNavigate, refresh }: { data: WizardData; onNavigat
     <h2 tabIndex={-1}>{titles[step]}</h2>
     {step === "facility" ? <section className="inventory-panel"><h3>Operating context</h3><p>Facility: {data.facility.name}. License type: {data.facility.license_type || "Not recorded"}.</p><p>Enabled operations: {data.facility.capabilities.join(", ") || "None"}.</p><p>{data.mode.message}</p><p>Confirm this is the facility you intend to set up. Use the facility selector to change context.</p><button className="secondary" onClick={() => onNavigate("Location Settings")}>Review facility settings</button><button className="secondary" onClick={() => onNavigate("Integrations")}>Review operating mode</button></section> : <>
       {step === "systems" && <p>Systems reflect this facility's capabilities and selected operating mode. Optional systems can be deferred. Required systems remain incomplete until their evidence is satisfied.</p>}
-      {step === "connect" && <p>Open each provider's existing settings to save its connection. Return with Resume Integration Wizard. Saved work stays in the existing configuration store and stored secrets are never loaded into this wizard.</p>}
+      {step === "connect" && <p>Connect Metrc here to preview your licensed facility and import existing records. Other providers retain their protected setup screens.</p>}
+      {["connect", "map", "evidence"].includes(step) && <GuidedMetrcSetup />}
       {step === "validate" && <p>Tests run only when you select Test / Validate. These use the existing provider contracts. A successful test proves connectivity, not production synchronization.</p>}
-      {step === "map" && <p>Review trusted facility mappings and accounting Item mappings. The wizard does not synchronize or post business records.</p>}
+      {step === "map" && <p>Review trusted facility mappings and accounting Item mappings. The Metrc import creates eligible local records after confirmation. It does not post changes to Metrc.</p>}
       {step === "evidence" && <p>Review observed validation times, environment, mapping requirements and blockers. Missing evidence cannot be overridden by progressing through this guide.</p>}
       {step === "summary" && <><p>{remaining.length} required provider setup item(s) still need attention. Optional services do not block facility go-live. {data.items.filter(item => item.required && item.status !== "connected").length} required provider(s) remain incomplete.</p><p>Connected means a recorded connection test passed with the setup checks shown here. Go-live acceptance still requires the authoritative Implementation Readiness reviews and operational evidence. Sandbox validation is not production acceptance.</p></>}
       <div className="report-card-grid">{data.items.map(item => <ProviderEvidence key={item.key} item={item} step={step} canManage={data.can_manage} onNavigate={onNavigate} refresh={refresh} />)}</div>
@@ -60,9 +63,9 @@ function GuidedFlow({ data, onNavigate, refresh }: { data: WizardData; onNavigat
 
 export function IntegrationWizardPage({ onNavigate }: { onNavigate: (page: string) => void }) {
   const client = useQueryClient();
-  const query = useQuery({ queryKey: ["integration-wizard"], queryFn: ({ signal }) => apiGet<WizardData>("/api/v1/integration-wizard", signal), retry: false });
+  const query = useQuery({ queryKey: ["integration-wizard", ...intelligenceScope()], queryFn: ({ signal }) => apiGet<WizardData>("/api/v1/integration-wizard", signal), retry: false });
   const refresh = () => { client.invalidateQueries({ queryKey: ["integration-wizard"] }); client.invalidateQueries({ queryKey: ["implementation-readiness"] }); };
-  return <div className="page adoption-page"><h1>Integration Wizard</h1><p>Facility → Integrations → Validate → Map → Prove Ready → Go Live</p>
+  return <div className="page adoption-page"><h1>Integration Wizard</h1><p>Facility â†’ Integrations â†’ Validate â†’ Map â†’ Prove Ready â†’ Go Live</p>
     <button className="secondary" disabled={query.isFetching} onClick={refresh}>Refresh evidence</button>
     {query.isPending && <p role="status">Loading facility integration evidence...</p>}{query.isError && <p role="alert">{query.error.message}</p>}
     {query.data && !query.isError && <GuidedFlow key={query.data.facility.id} data={query.data} onNavigate={onNavigate} refresh={refresh} />}

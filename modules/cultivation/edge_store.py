@@ -42,7 +42,7 @@ def _hash(value):
 def _token(value, *, optional=False):
     if optional and value is None:
         return None
-    if not isinstance(value, str) or not re.fullmatch(r"[\w@ .:/%+°µ²-]{1,160}", value) or "://" in value:
+    if not isinstance(value, str) or not re.fullmatch(r"[\w@ .:/%+Â°ÂµÂ²-]{1,160}", value) or "://" in value:
         raise EdgeError("invalid_identifier")
     if any(word in value.lower() for word in ("bearer ", "password", "secret", "api_key", "access_token")):
         raise EdgeError("unsafe_identifier")
@@ -100,7 +100,7 @@ class Scope:
         return _json(asdict(self))
 
 
-_READING_FIELDS = {"event_id", "source_device_id", "source_channel", "source_metric", "value", "unit", "observed_at", "received_at", "quality"}
+_READING_FIELDS = {"event_id", "source_device_id", "source_channel", "source_metric", "value", "unit", "observed_at", "received_at", "quality", "timestamp_basis"}
 _SNAPSHOT_FIELDS = {"organization_id", "facility_id", "connection_id", "room_id", "device_id", "sensor_id", "mapping_revision", "metric", "effective_from", "effective_to", "zone_id", "cycle_id", "stage_id", "recipe_revision", "target_min", "target_max", "threshold_seconds"}
 
 
@@ -314,6 +314,10 @@ class EdgeStore:
         reason = "unsafe_metadata" if any(k not in _READING_FIELDS and v not in (None, "", {}) for k, v in reading.items()) else ""
         raw = {}
         for field in _READING_FIELDS:
+            # Preserve old event fingerprints exactly when the optional basis
+            # was not present; a new null field would turn retries into conflicts.
+            if field == "timestamp_basis" and field not in reading:
+                continue
             value = reading.get(field, "valid" if field == "quality" else None)
             if field == "received_at" and value is None:
                 value = datetime.now(timezone.utc)
@@ -329,6 +333,8 @@ class EdgeStore:
                     _token(value)
                 except EdgeError:
                     value, reason = "[rejected]", "unsafe_field"
+            if field == "timestamp_basis" and value not in {"provider_observation", "provider_normalized_sample", "provider_receipt", "receiver_time"}:
+                value, reason = "[rejected]", "unsafe_timestamp_basis"
             raw[field] = value
         observed = None
         try:
@@ -591,6 +597,7 @@ class EdgeStore:
                 metric=snap["metric"], value=value if active else None,
                 unit=canonical["unit"] if canonical else None,
                 original_value=raw["value"] if raw else None, original_unit=raw["unit"] if raw else None,
+                timestamp_basis=raw.get("timestamp_basis") if raw else None,
                 observed_at=_iso(observed) if observed is not None else None, received_at=_iso(row["received"]),
                 data_age_seconds=age, latency_seconds=row["received"]-observed if observed is not None else None,
                 quality=raw["quality"] if raw else None, state=row["state"], reason=row["reason"],

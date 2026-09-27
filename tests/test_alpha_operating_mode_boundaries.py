@@ -186,7 +186,9 @@ def test_alpha_mode_ui_exposes_simple_choice_and_gates_metrc_configuration():
     assert "Metrc Sandbox" in source
     assert "Metrc is optional during alpha" in source
     assert "DoobieLogic Sandbox is active. Existing saved Metrc credentials are left encrypted in place" in source
-    assert "function MetrcCard({ value, enabled, onSaved }" in source
+    assert "function MetrcCard({ value, enabled, environment, onSaved }" in source
+    assert "production_confirmed" in source
+    assert "environment, api_key: form.api_key" in source
 
 
 def test_main_registers_mode_aware_dev_provider_list_before_legacy_list():
