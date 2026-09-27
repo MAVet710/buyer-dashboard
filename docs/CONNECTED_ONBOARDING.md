@@ -23,3 +23,7 @@ The goal of minimizing Metrc switching requires operation-by-operation productio
 `/api/v1/integration-wizard/metrc-setup` exposes sanitized connection/readiness and durable import progress. Credentials, facility preview, confirmed link and import are explicit actions. Confirmation re-fetches the licensed facility list and compares its fingerprint, selected environment and credential generation. Linking runs canonical saves inside one relational transaction. A lost response can be retried without creating a second local facility.
 
 The background job is bounded to one import per host. A dedicated short-budget PostgreSQL connection holds a transaction-scoped advisory lock during the import rather than occupying the API's normal small pool. Progress updates use an expected run identity so a superseded worker cannot overwrite a newer run. A stale pending lease is distinguishable from a live worker; no fake success is written on process restart.
+
+## Fresh database privilege baseline
+
+PostgreSQL acceptance identified that existing production has server-only integration/mode grants absent from a fresh migration-only test database. Migration0089 installs the minimum SELECT/INSERT and mutable-column UPDATE grants for those two preexisting tables when the backend role exists. It does not grant DELETE, tenant/scope identity changes or browser access. Older existing grants are not revoked during upgrade or downgrade because they belong to the preexisting host baseline.

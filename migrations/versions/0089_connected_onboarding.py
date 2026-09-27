@@ -27,6 +27,18 @@ def upgrade():
     change('alpha_operating_modes','ck_alpha_operating_mode_mode',NEW_MODES)
     change('integration_configurations','ck_integration_provider',NEW_PROVIDERS)
     change('cultivation_telemetry_connections','ck_ci_connection_mode',NEW_CONNECTION_MODES)
+    if op.get_bind().dialect.name=='postgresql':
+        # Existing production already grants these operations. Install their
+        # minimal baseline on a fresh database, without granting browser access
+        # or mutation of immutable tenant/scope/credential identities.
+        op.execute("""DO $grants$ BEGIN
+          IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='doobielogic_render_runtime') THEN
+            GRANT SELECT, INSERT ON public.alpha_operating_modes, public.integration_configurations TO doobielogic_render_runtime;
+            GRANT UPDATE (mode,updated_by,updated_at) ON public.alpha_operating_modes TO doobielogic_render_runtime;
+            GRANT UPDATE (configuration_json,encrypted_secret,secret_hint,status,last_validated_at,last_error,updated_by,updated_at) ON public.integration_configurations TO doobielogic_render_runtime;
+          END IF;
+        END $grants$;""")
+
 
 
 def downgrade():

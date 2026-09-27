@@ -40,3 +40,10 @@ def test_network_and_credential_tables_are_not_browser_readable(pg,role):
                 pg.exec_driver_sql('SELECT * FROM '+table+' LIMIT 1')
             assert failure.value.orig.sqlstate=='42501'
             savepoint.rollback()
+
+
+def test_fresh_baseline_grants_do_not_allow_scope_rebinding_or_delete(pg):
+    for table in ('alpha_operating_modes','integration_configurations'):
+        assert not pg.scalar(sa.text("SELECT has_table_privilege('doobielogic_render_runtime',:table,'DELETE')"),{'table':table})
+        for column in ('organization_id','facility_id','id'):
+            assert not pg.scalar(sa.text("SELECT has_column_privilege('doobielogic_render_runtime',:table,:column,'UPDATE')"),{'table':table,'column':column})
