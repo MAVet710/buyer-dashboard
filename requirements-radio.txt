@@ -1,0 +1,13 @@
+# Optional Windows receive-only Bluetooth runtime. Install in a SEPARATE environment.
+# Never install this into the active production API interpreter.
+bleak==3.0.2; sys_platform == "win32"
+winrt-runtime==3.2.1; sys_platform == "win32"
+winrt-Windows.Devices.Bluetooth==3.2.1; sys_platform == "win32"
+winrt-Windows.Devices.Bluetooth.Advertisement==3.2.1; sys_platform == "win32"
+winrt-Windows.Devices.Bluetooth.GenericAttributeProfile==3.2.1; sys_platform == "win32"
+winrt-Windows.Devices.Enumeration==3.2.1; sys_platform == "win32"
+winrt-Windows.Devices.Radios==3.2.1; sys_platform == "win32"
+winrt-Windows.Foundation==3.2.1; sys_platform == "win32"
+winrt-Windows.Foundation.Collections==3.2.1; sys_platform == "win32"
+winrt-Windows.Storage.Streams==3.2.1; sys_platform == "win32"
+typing_extensions==4.16.0; sys_platform == "win32"

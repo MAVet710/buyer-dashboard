@@ -342,7 +342,7 @@ def test_migration_chain_and_postgres_browser_restrictions():
     from alembic.operations import Operations
     from io import StringIO
     scripts = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert scripts.get_heads() == ["0087_cultivation_push"]
+    assert scripts.get_heads() == ["0088_cultivation_radio"]
     assert scripts.get_revision("0085_cultivation_telemetry").down_revision == "0084_wholesale_logistics"
     revision = scripts.get_revision("0083_onboarding_reporting")
     assert revision.down_revision == "0082_white_label_execution"

@@ -33,6 +33,7 @@ from .routers.cultivation_telemetry import router as cultivation_telemetry_route
 from .routers.cultivation_intelligence_workspace import router as cultivation_intelligence_workspace_router
 from .routers.cultivation_edge_work import router as cultivation_edge_work_router
 from .routers.cultivation_ingress import router as cultivation_ingress_router
+from .routers.cultivation_radio import router as cultivation_radio_router
 from .routers.production import router as production_router
 from .routers.white_label import router as white_label_router
 from .routers.production_mutations import router as production_mutations_router
@@ -155,11 +156,24 @@ async def lifespan(application: FastAPI):
     monitor.start()
     from .services.cultivation_maintenance_runtime import start_host_maintenance, stop_maintenance
     maintenance = None
+    radio = None
     try:
         maintenance = start_host_maintenance(engine)
         application.state.cultivation_maintenance = maintenance
+        from .services.cultivation_radio_runtime import start_host_radio
+        from modules.cultivation.radio.config import RadioConfigError
+        try:
+            radio = start_host_radio(engine)
+        except RadioConfigError:
+            logger.warning("Cultivation radio disabled: invalid or unavailable host configuration")
+        application.state.cultivation_radio = radio
         yield
     finally:
+        if radio is not None:
+            from asyncio import to_thread
+            from .services.cultivation_radio_runtime import stop_host_radio
+            if not await to_thread(stop_host_radio):
+                logger.warning("Cultivation radio is still stopping; replacement remains blocked")
         if maintenance is not None:
             from asyncio import to_thread
             stopped = await to_thread(stop_maintenance)
@@ -308,6 +322,7 @@ app.include_router(cultivation_telemetry_router, prefix=settings.api_prefix)
 app.include_router(cultivation_intelligence_workspace_router, prefix=settings.api_prefix)
 app.include_router(cultivation_edge_work_router, prefix=settings.api_prefix)
 app.include_router(cultivation_ingress_router, prefix=settings.api_prefix)
+app.include_router(cultivation_radio_router, prefix=settings.api_prefix)
 app.include_router(production_router, prefix=settings.api_prefix)
 app.include_router(white_label_router, prefix=settings.api_prefix)
 app.include_router(production_mutations_router, prefix=settings.api_prefix)

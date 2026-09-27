@@ -12,7 +12,7 @@ TABLE='cultivation_ingress_grants'
 
 
 def test_push_actual_head_rls_and_composite_binding(pg):
-    assert pg.scalar(sa.text('SELECT version_num FROM alembic_version'))=='0087_cultivation_push'
+    assert pg.scalar(sa.text('SELECT version_num FROM alembic_version'))=='0088_cultivation_radio'
     assert pg.scalar(sa.text("SELECT relrowsecurity FROM pg_class WHERE oid='public.cultivation_ingress_grants'::regclass"))
     fks=sa.inspect(pg).get_foreign_keys(TABLE)
     assert any(f['constrained_columns']==['organization_id','facility_id','service_account_id'] and f['referred_table']=='service_accounts' for f in fks)

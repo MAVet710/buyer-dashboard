@@ -14,6 +14,7 @@ async function fixture(page: Page, options: Options = {}) {
   await page.route("**/api/**", async route => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
+    if (path === "/api/v1/cultivation-radio/status" && request.method() === "GET") return route.fulfill({ json: { enabled: false, host_matches: false, can_manage: !options.readOnly, receivers: [], runtime_error: null, limitations: [] } });
     if (request.method() !== "GET") writes.push({ path, body: request.postDataJSON(), facility: request.headers()["x-facility-id"] });
     if (path === `${base}/workspace`) return route.fulfill({ json: workspace });
     if (path === `${base}/connections`) return route.fulfill({ json: request.method() === "POST" ? connection : { connections: [connection], truncated: false } });
@@ -125,7 +126,7 @@ for (const conflict of [false, true]) test(`grant revoke requires confirmation a
   await page.getByRole("button", { name: "Confirm grant revocation" }).click();
   await expect.poll(() => writes.length).toBe(1);
   expect(writes[0].body).toEqual({ version: 4 });
-  if (conflict) await expect(page.getByRole("alert")).toContainText("Grant version conflict");
+  if (conflict) await expect(page.getByRole("region", { name: "Normalized push setup" }).getByRole("alert")).toContainText("Grant version conflict");
   else await expect(page.getByText(/Fixture collector: revoked/)).toBeVisible();
 });
 
@@ -162,7 +163,7 @@ for (const status of [409, 429, 503]) test(`issuance failure ${status} never sho
 
 test("grant diagnostics failure is explicit", async ({ page }) => {
   await fixture(page, { error: 503, health: { edge: null } });
-  await expect(page.getByRole("alert")).toContainText("Fixture diagnostics unavailable");
+  await expect(page.getByRole("region", { name: "Normalized push setup" }).getByRole("alert")).toContainText("Fixture diagnostics unavailable");
   await expect(page.getByText("Status unavailable", { exact: true })).toBeVisible();
 });
 

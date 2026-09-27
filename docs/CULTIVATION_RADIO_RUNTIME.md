@@ -1,0 +1,23 @@
+# Facility-host passive receiver runtime
+
+The runtime is disabled unless the host administrator supplies a protected absolute `CULTIVATION_RADIO_CONFIG` file bound to one existing organization and facility. Browser requests cannot supply executable paths, packages, decoder arguments, tuning frequencies or arbitrary radio payloads. Public API availability does not expose general receiver controls.
+
+The host configuration names up to two receivers: `ble` and/or `rtl433`. Each executable is a regular local file with a pinned SHA-256. BLE uses a separately installed, pinned Bleak package directory, not additions to the active API virtual environment. The Windows backend runs with `scanning_mode='passive'` and filters BTHome service UUID FCD2. Other platforms fail closed until their passive behavior is independently implemented and verified.
+
+The optional rtl_433 adapter runs only the administrator-reviewed executable with configuration loading disabled, decoder 113 explicitly selected, one fixed device index and one approved center frequency. No broad decoder set, network SDR, shell argument, IQ file, raw radio log or output transport is enabled. A compatible physical SDR and reviewed decoder version are required; DoobieLogic does not install drivers or buy hardware.
+
+The Windows named host lease prevents two application processes from owning collection. Receiver subprocesses belong to a kill-on-close Windows Job. A stopped or crashed owning process cannot leave an orphan receiver indefinitely. The normal production launcher must call `start_host_radio(get_engine())` only for port 8010 and call `stop_host_radio()` during orderly shutdown. A shadow API must not seize a live receiver. No Windows scheduled task, tunnel, DNS or Caddy architecture is replaced.
+
+Before explicit approval, only bounded transient candidates exist. Approval is a central transaction creating canonical relationships plus one `cultivation_radio_bindings` record under migration 0088. RLS/browser denial and restricted runtime column grants apply. A populated binding table refuses downgrade, including disconnected approvals. After exposure, retain additive schema rather than erase evidence to roll back application code.
+
+Approved collection revalidates active bindings, organization/facility capability, connection/device state and active authorizer. No remote grant permits scanning a different facility host. Disconnect/revocation stops later collection; an already authorized bounded transaction may finish. Receiver failure never becomes a successful empty scan.
+
+Queues are bounded to 128 received events per receiver and one pending normalized batch per approved binding. The host supports at most 32 active bindings. Backlog is retried with unchanged event IDs until local commit. A process crash before that commit can lose uncommitted radio events; passive broadcasts have no replay guarantee. Discovery previews are never retroactively ingested. Repeated packet IDs/values and closely spaced transmissions are suppressed conservatively. Without a trustworthy sample counter, reception-time observations do not prove unique sensor acquisition events.
+
+Persisted readings reuse the existing EdgeStore and temporal resolver; raw RF bytes are never the operational history. The existing automatic maintenance loop builds partial-coverage summaries and verified archives. Storage remains finite and stops collection on backpressure. No per-packet Supabase writes, new cloud queue, notification vendor or recurring service is introduced. Administrative binding audit records are separate from local measurement commits; no cross-database atomicity is claimed.
+
+## Deployment and hardware verification
+
+Install optional packages only in the separate receiver environment described by `requirements-radio.txt`. Protect the configuration, runtime files and data paths with normal host ACLs. Record executable and package versions in the private release evidence, never credentials. A supported sensor must be tested against its own controller/display; the current actual receiver capability proof alone found no supported sensor and does not establish that physical data path.
+
+Release validation must include fresh single-head migrations, PostgreSQL privileges, the actual React/HTTP/SQLite software flow, missing/unsupported receiver behavior, cancellation, scope and read-only denial, post-approval-only evidence, retry/disconnect and process cleanup. Public production acceptance must use the real configured receiver or explicitly verify its unavailable state. Fixture injection is confined to an opt-in loopback test server and is never enabled in the production configuration.
