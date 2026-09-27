@@ -75,3 +75,8 @@
 @media (max-width: 650px) {
   .help-article-header h1 { font-size: clamp(30px, 9vw, 40px); line-height: 1.12; }
 }
+/* Examples and source-field identifiers must wrap, not widen a grid track. */
+.help-walkthrough { overflow-wrap: anywhere; }
+.help-detailed-steps { grid-template-columns: minmax(0, 1fr); width: 100%; min-width: 0; }
+.help-detailed-steps > section, .help-step-result > div { min-width: 0; }
+.help-step-capture, .help-image-open { max-width: 100%; min-width: 0; }
