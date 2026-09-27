@@ -7,6 +7,7 @@ from .batches import CultivationBatchService
 from .telemetry_models import EnvironmentalObservation, EnvironmentalTarget
 from . import intelligence_models as _intelligence_models  # register scoped FK targets
 from . import ingress_models as _ingress_models  # register exact machine grants
+from .radio import models as _radio_models  # register explicit owned-sensor bindings
 
 # Import for its SQLAlchemy before_flush registration. Harvest completion must
 # always fail closed when measured material has not been fully reconciled.

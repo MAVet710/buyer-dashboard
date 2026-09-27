@@ -23,7 +23,7 @@ def committed_recipe():
         with engine.connect() as connection:
             assert connection.scalar(text("SELECT current_database()")) == "doobielogic_release_test"
             assert connection.scalar(text("SHOW server_version_num")).startswith("17")
-            assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0087_cultivation_push"
+            assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0088_cultivation_radio"
         with Session(engine) as session, session.begin():
             org = Organization(name="Recipe concurrency fixture", slug=str(uuid4()))
             session.add(org)

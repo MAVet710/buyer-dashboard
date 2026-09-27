@@ -1,0 +1,10 @@
+.radio-setup { border: 1px solid var(--dl-border, #424940); border-radius: 10px; padding: 1rem; margin: 1rem 0; background: var(--dl-popup-surface, #111412); color: var(--dl-text, #f2f5ef); }
+.radio-candidates { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: .75rem; }
+.radio-device { border: 1px solid var(--dl-border, #424940); border-radius: 8px; padding: .8rem; margin: .6rem 0; min-width: 0; overflow-wrap: anywhere; }
+.radio-device h4 { margin: 0 0 .45rem; }
+.radio-scan-controls, .radio-link-form fieldset { display: grid; gap: .75rem; min-width: 0; }
+.radio-link-form { padding: 1rem 0; }
+.radio-setup label { display: block; line-height: 1.5; }
+.radio-setup input:not([type=checkbox]), .radio-setup select { width: 100%; max-width: 100%; box-sizing: border-box; }
+.radio-setup button, .radio-setup a { white-space: normal; overflow-wrap: anywhere; max-width: 100%; }
+.radio-note { font-size: .9rem; }
