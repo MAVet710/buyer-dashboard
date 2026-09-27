@@ -80,3 +80,12 @@
 .help-detailed-steps { grid-template-columns: minmax(0, 1fr); width: 100%; min-width: 0; }
 .help-detailed-steps > section, .help-step-result > div { min-width: 0; }
 .help-step-capture, .help-image-open { max-width: 100%; min-width: 0; }
+/* Override application table defaults: prose must not be clipped as a data cell. */
+.help-walkthrough .help-fields th, .help-walkthrough .help-fields td {
+  white-space: normal; overflow-wrap: anywhere; word-break: normal;
+}
+.help-walkthrough .help-fields tbody th {
+  font-size: 13px; line-height: 1.5; text-transform: none; letter-spacing: normal;
+}
+.help-walkthrough .help-fields tbody th small { font-size: 12px; }
+.help-walkthrough .help-fields td, .help-walkthrough .help-fields td p { white-space: normal; }
