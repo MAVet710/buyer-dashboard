@@ -67,7 +67,7 @@ class NetworkRuntime:
             context=RequestContext(actor.id,row.organization_id,row.facility_id,actor.role)
             from backend.app.permissions import require_permission
             from backend.app.auth import require_facility_capability
-            require_facility_capability(context,self.engine,'cultivation')
+            require_facility_capability(context,s.connection(),'cultivation')
             require_permission(context,self.engine,'cultivation.manage_connections',session=s)
             data=json.loads(config.configuration_json)
             return {'id':identity,'version':row.version,'scope':Scope(row.organization_id,row.facility_id,identity),

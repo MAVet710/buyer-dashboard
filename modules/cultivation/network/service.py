@@ -69,7 +69,9 @@ class NetworkService(IntelligenceService):
         runtime=self.manager()
         with Session(self.engine) as s:
             row,config,data=self.connection_config(s,identity)
-            return runtime.discover(self.context.user_id,self.org,self.facility,identity,row.version)
+            version=row.version
+        # Release the request's database slot before runtime authorization.
+        return runtime.discover(self.context.user_id,self.org,self.facility,identity,version)
 
     def preview(self,identity,preview_id):
         runtime=self.manager()

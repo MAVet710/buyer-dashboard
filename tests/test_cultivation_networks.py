@@ -235,3 +235,23 @@ def test_explicit_simulated_vendor_message_is_not_live_sensor_evidence():
     value=sample_uplink();value['simulated']=True
     with pytest.raises(NetworkError,match='simulated_source_not_live'):
         normalized_uplink(value,'grow-app')
+
+
+def test_network_discovery_fits_the_actual_two_connection_api_pool(net):
+    from sqlalchemy import create_engine
+    h=net;connection=create(h)
+    bounded=create_engine(h.engine.url,pool_size=2,max_overflow=0,pool_timeout=.1,
+                         connect_args={'check_same_thread':False})
+    previous=h.runtime.engine
+    h.runtime.engine=bounded
+    try:
+        service=NetworkService(bounded,h.context,h.settings.integration_encryption_key,h.runtime)
+        preview=service.discover(connection['id'])
+        assert preview['state']=='connecting'
+        deadline=time.monotonic()+3
+        while time.monotonic()<deadline and connection['id'] in h.runtime.busy:time.sleep(.02)
+        assert service.preview(connection['id'],preview['id'])['state']=='complete'
+        assert bounded.pool.checkedout()==0
+    finally:
+        h.runtime.engine=previous
+        bounded.dispose()

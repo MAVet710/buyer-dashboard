@@ -19,3 +19,5 @@ The deterministic browser harness uses fresh migrated SQLite, the actual applica
 Live acceptance additionally requires customer-owned provider credentials and their permitted device streams. The PC release must separately pass clean source/tree identity, full CI/PostgreSQL gates, shadow read acceptance, stable-controller promotion, signed-in public checks and unchanged scheduled-task verification. A successful fixture or a green PR is not a deployed/live-provider claim.
 
 No new recurring service is required by DoobieLogic. Customers may need an existing paid vendor/API entitlement. No subscription, credit package or physical receiver was purchased for this work.
+
+The discovery request releases its local configuration read before runtime authorization. Runtime capability checks reuse their existing transaction connection. A two-slot, zero-overflow pool regression proves discovery does not request a third connection or hold a request slot while starting the provider read.
