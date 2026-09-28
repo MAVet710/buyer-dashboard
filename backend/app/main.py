@@ -227,6 +227,18 @@ _BUYER_UPLOAD_BACKED_PREFIXES = (
 
 
 @app.middleware("http")
+async def active_defense_deception(request: Request, call_next):
+    # Synthetic honey routes are intentionally absent from real application navigation.
+    # Record only pseudonymized telemetry and return a generic not-found response.
+    from .security.guard import HONEY_ROUTES
+    if request.url.path in HONEY_ROUTES:
+        from .security.runtime import observe
+        observe(request, "honey_touch", "synthetic-honey-route")
+        return JSONResponse(status_code=404, content={"detail": "Not found"})
+    return await call_next(request)
+
+
+@app.middleware("http")
 async def add_security_response_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
@@ -259,6 +271,25 @@ async def enforce_buyer_data_mode(request: Request, call_next):
 @app.get("/health", tags=["system"])
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/health/security-guard", tags=["system"], include_in_schema=False)
+def security_guard_health(engine: Engine = Depends(get_engine)) -> dict:
+    import time as _time
+    from sqlalchemy.orm import Session
+    from .security.models import SecurityGuardState
+    try:
+        with Session(engine) as session:
+            row = session.get(SecurityGuardState, "guard:primary")
+        if row is None:
+            return {"status":"starting","fresh":False,"metrc_write_protection":True}
+        age=max(0.0,_time.time()-row.checked_at)
+        return {"status":"ready" if age <= 30 else "degraded","fresh":age <= 30,
+                "age_seconds":round(age,1),"threat_level":row.threat_level,
+                "metrc_write_protection":row.metrc_write_protection,"deception_armed":row.deception_armed,
+                "ai_state":row.ai_state}
+    except Exception:
+        return {"status":"degraded","fresh":False,"metrc_write_protection":True}
 
 
 @app.get(f"{settings.api_prefix.rstrip('/')}/health/ready", tags=["system"], include_in_schema=False)

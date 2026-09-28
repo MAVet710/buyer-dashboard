@@ -1,5 +1,5 @@
 """Platform-only telemetry; canonical operational audit remains authoritative."""
-from sqlalchemy import Column, String, Float, Integer, Text, Index
+from sqlalchemy import Column, String, Float, Integer, Text, Index, Boolean
 from modules.coman.models import Base
 
 
@@ -50,3 +50,38 @@ class SecurityMonitorState(Base):
     status = Column(String(32), nullable=False)
     dropped = Column(Integer, nullable=False, default=0)
     failures = Column(Integer, nullable=False, default=0)
+
+
+class SecurityGuardState(Base):
+    __tablename__ = "security_guard_state"
+    id = Column(String(80), primary_key=True)
+    checked_at = Column(Float, nullable=False)
+    state = Column(String(24), nullable=False, default="observing")
+    threat_level = Column(String(16), nullable=False, default="normal")
+    risk_score = Column(Integer, nullable=False, default=0)
+    active_investigations = Column(Integer, nullable=False, default=0)
+    metrc_write_protection = Column(Boolean, nullable=False, default=False)
+    deception_armed = Column(Boolean, nullable=False, default=True)
+    ai_state = Column(String(24), nullable=False, default="not_checked")
+    ai_last_success = Column(Float, nullable=False, default=0)
+    detail_json = Column(Text, nullable=False, default="{}")
+
+
+class SecurityInvestigation(Base):
+    __tablename__ = "security_investigations"
+    id = Column(String(36), primary_key=True)
+    fingerprint = Column(String(64), unique=True, nullable=False)
+    opened_at = Column(Float, nullable=False)
+    updated_at = Column(Float, nullable=False)
+    status = Column(String(24), nullable=False, default="open")
+    risk_score = Column(Integer, nullable=False, default=0)
+    confidence = Column(Float, nullable=False, default=0)
+    classification = Column(String(80), nullable=False, default="suspicious_activity")
+    subject_key = Column(String(64), nullable=False, default="")
+    source_key = Column(String(64), nullable=False, default="")
+    evidence_json = Column(Text, nullable=False, default="{}")
+    ai_summary = Column(Text, nullable=False, default="")
+    recommended_state = Column(String(24), nullable=False, default="observe")
+    containment_json = Column(Text, nullable=False, default="{}")
+    evidence_hash = Column(String(64), nullable=False, default="")
+    __table_args__ = (Index("ix_security_investigation_status_risk", "status", "risk_score", "updated_at"),)
