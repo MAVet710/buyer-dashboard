@@ -51,7 +51,7 @@ class SecurityMonitor:
             event = dict(id=str(uuid4()), occurred_at=time.time(), kind=kind,
                 subject_key=pseudonym(key, "subject", str(subject)),
                 source_key=pseudonym(key, "source", source_identity(request, self.settings)),
-                actor_id=str(actor_id)[:36], organization_id=str(organization_id)[:36],
+                actor_id=str(actor_id)[:64], organization_id=str(organization_id)[:36],
                 route=str(route)[:200], request_id=str(uuid4()), audit_id="")
             self.queue.put_nowait(event)
         except queue.Full:

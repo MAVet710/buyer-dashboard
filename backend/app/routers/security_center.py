@@ -9,6 +9,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from ..auth import RequestContext, get_request_context, bearer
 from ..database import get_engine
+from ..config import Settings, get_settings
+from ..security.privacy import pseudonym
+from modules.coman.models import AppUser
 from ..security.models import SecurityIncident, SecurityMonitorState, SecurityGuardState, SecurityInvestigation
 from ..security.store import serialize_incident
 from modules.coman.audit import record_audit_event
@@ -66,6 +69,40 @@ def guard_status(context=Depends(security_context), engine: Engine = Depends(get
         }
     except SQLAlchemyError:
         raise HTTPException(503, "Security Guard state is unavailable; regulatory writes should remain protected.") from None
+
+
+class ResolveKnownAccount(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    subject_key: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+
+
+@router.post("/resolve-known-account")
+def resolve_known_account(payload: ResolveKnownAccount, context=Depends(security_context),
+                          engine: Engine = Depends(get_engine), settings: Settings = Depends(get_settings)):
+    """Compare one existing Security Center fingerprint to known accounts without exposing the HMAC key."""
+    if len(settings.security_hmac_secret) < 32:
+        raise HTTPException(503, "Security pseudonymization is not configured.")
+    try:
+        with Session(engine) as session:
+            rows = session.execute(select(AppUser.id, AppUser.username, AppUser.active)).all()
+        matches = []
+        for user_id, username, active in rows:
+            normalized = str(username or "").strip().casefold()
+            if normalized and pseudonym(settings.security_hmac_secret, "subject", normalized) == payload.subject_key:
+                matches.append({"user_id":str(user_id),"username":str(username),"active":bool(active)})
+        if len(matches) > 1:
+            raise HTTPException(409, "Security fingerprint matched more than one account; manual review required.")
+        result = matches[0] if matches else None
+        with Session(engine) as session, session.begin():
+            record_audit_event(session, organization_id=context.organization_id, facility_id=context.facility_id,
+                               entity_type="security_incident", entity_id=payload.subject_key[:12],
+                               action="known_account_fingerprint_resolved", actor=context.user_id,
+                               changes={"matched":bool(result)})
+        return {"known_account":bool(result),"account":result}
+    except HTTPException:
+        raise
+    except SQLAlchemyError:
+        raise HTTPException(503, "Known-account fingerprint resolution is unavailable.") from None
 
 
 @router.get("/incidents")
