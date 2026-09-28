@@ -12,9 +12,10 @@ from .notifications import SecurityNotifier
 from .retention import maintain, available_capacity
 from .privacy import pseudonym, source_identity
 from .store import append_events, collect_privileged_audits, detect, insert_for, open_incident
+from .guard import evaluate_guard, local_ai_review
 
 logger = logging.getLogger(__name__)
-KINDS = frozenset(("login_failure", "login_success", "scope_denial"))
+KINDS = frozenset(("login_failure", "login_success", "scope_denial", "honey_touch"))
 
 
 class SecurityMonitor:
@@ -38,6 +39,7 @@ class SecurityMonitor:
         self.last_tick_failed = False
         self.reported_dropped = 0
         self.reported_failures = 0
+        self.last_ai_review = 0.0
         self._lock = threading.Lock()
 
     def emit(self, request, kind, subject, actor_id="", organization_id=""):
@@ -104,6 +106,7 @@ class SecurityMonitor:
                 if capacity > len(batch) + 200:
                     saturated = collect_privileged_audits(session, self.settings.security_hmac_secret, now) or saturated
                 saturated = detect(session, now) or saturated
+                state = evaluate_guard(session, now)
                 if self.dropped > self.reported_dropped or self.failures > self.reported_failures or saturated:
                     open_incident(session, "monitoring_degraded", self.identifier, max(1, self.dropped + self.failures),
                         now, {"dropped": self.dropped, "failures": self.failures, "saturated": saturated}, "warning")
@@ -118,6 +121,9 @@ class SecurityMonitor:
             self.last_tick_failed = False
             self.reported_dropped = self.dropped
             self.reported_failures = self.failures
+            if now - self.last_ai_review >= 60 and state.get("risk_score", 0) >= 40:
+                local_ai_review(self.engine, self.settings, state)
+                self.last_ai_review = now
         except Exception:
             self.last_tick_failed = True
             self.pending = batch

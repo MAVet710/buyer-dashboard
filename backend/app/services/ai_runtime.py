@@ -149,7 +149,7 @@ def _native_provider_order(config: dict[str, Any], settings: Settings) -> tuple[
     return order, mode, allow_fallback
 
 
-def build_runtime(*, engine: Engine, settings: Settings, context: RequestContext, operation_type: str) -> tuple[Any, Any, str, str, dict[str, Any]]:
+def build_runtime(*, engine: Engine, settings: Settings, context: RequestContext, operation_type: str, agent_key: str = "") -> tuple[Any, Any, str, str, dict[str, Any]]:
     (
         AgentRuntime,
         KnowledgeRetriever,
@@ -190,6 +190,10 @@ def build_runtime(*, engine: Engine, settings: Settings, context: RequestContext
         )
 
     order, mode, allow_fallback = _native_provider_order(config, settings)
+    if str(agent_key or "").strip().casefold() == "security":
+        order = ["local"]
+        mode = "local_only"
+        allow_fallback = False
     router = ProviderRouter(providers, order=order, allow_cloud_fallback=allow_fallback)
 
     # Surface the effective, sanitized routing. The retired `doobie` provider is

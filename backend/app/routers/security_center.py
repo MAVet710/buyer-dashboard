@@ -9,7 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from ..auth import RequestContext, get_request_context, bearer
 from ..database import get_engine
-from ..security.models import SecurityIncident, SecurityMonitorState
+from ..security.models import SecurityIncident, SecurityMonitorState, SecurityGuardState, SecurityInvestigation
 from ..security.store import serialize_incident
 from modules.coman.audit import record_audit_event
 
@@ -40,6 +40,32 @@ def status(request: Request, context=Depends(security_context), engine: Engine =
             stale=time.time() - t > 30) for t,s,d,f in workers]}
     except SQLAlchemyError:
         raise HTTPException(503, "Security storage unavailable; monitoring coverage is not verified.") from None
+
+
+@router.get("/guard")
+def guard_status(context=Depends(security_context), engine: Engine = Depends(get_engine)):
+    try:
+        with Session(engine) as session:
+            guard = session.get(SecurityGuardState, "guard:primary")
+            investigations = list(session.scalars(
+                select(SecurityInvestigation).where(SecurityInvestigation.status == "open")
+                .order_by(SecurityInvestigation.risk_score.desc(), SecurityInvestigation.updated_at.desc()).limit(25)
+            ))
+        if guard is None:
+            return {"state":"starting","threat_level":"unknown","metrc_write_protection":True,"deception_armed":True,"investigations":[]}
+        return {
+            "state":guard.state,"checked_at":guard.checked_at,"threat_level":guard.threat_level,
+            "risk_score":guard.risk_score,"active_investigations":guard.active_investigations,
+            "metrc_write_protection":guard.metrc_write_protection,"deception_armed":guard.deception_armed,
+            "ai_state":guard.ai_state,"ai_last_success":guard.ai_last_success,
+            "investigations":[{
+                "id":x.id,"updated_at":x.updated_at,"risk_score":x.risk_score,"confidence":x.confidence,
+                "classification":x.classification,"recommended_state":x.recommended_state,
+                "evidence_hash":x.evidence_hash,"ai_summary":x.ai_summary,
+            } for x in investigations],
+        }
+    except SQLAlchemyError:
+        raise HTTPException(503, "Security Guard state is unavailable; regulatory writes should remain protected.") from None
 
 
 @router.get("/incidents")

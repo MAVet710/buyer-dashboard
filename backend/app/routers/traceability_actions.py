@@ -535,6 +535,9 @@ def dispatch_action(
     settings: Settings = Depends(get_settings),
 ):
     require_permission(context, engine, "traceability.dispatch")
+    from ..security.guard import metrc_writes_allowed
+    if not metrc_writes_allowed(engine):
+        raise HTTPException(423, "Security Guard has temporarily armed regulatory-write protection. Review Security Center before dispatch.")
     if context.role.casefold() not in DISPATCH_ROLES:
         raise HTTPException(403, "Supervisor, QA, Admin, or DEV approval is required to dispatch a state-system mutation.")
     if not str(settings.integration_encryption_key or "").strip():

@@ -32,7 +32,7 @@ def test_upgrade_and_empty_downgrade_preserve_existing_records(migrated):
     engine,run=migrated
     run('upgrade','head')
     with engine.connect() as c:
-        assert c.scalar(text('SELECT version_num FROM alembic_version'))=='0089_connected_onboarding'
+        assert c.scalar(text('SELECT version_num FROM alembic_version'))=='0090_security_guard'
         assert c.scalar(text('SELECT name FROM coman_facilities WHERE id=\'f\''))=='Fixture'
     run('downgrade','0088_cultivation_radio')
     with engine.connect() as c:
@@ -51,4 +51,4 @@ def test_downgrade_refuses_operational_configuration(migrated,kind):
     result=run('downgrade','0088_cultivation_radio',ok=False)
     assert 'Preserve the additive schema' in result.stderr
     with engine.connect() as c:
-        assert c.scalar(text('SELECT version_num FROM alembic_version'))=='0089_connected_onboarding'
+        assert c.scalar(text('SELECT version_num FROM alembic_version'))=='0090_security_guard'
