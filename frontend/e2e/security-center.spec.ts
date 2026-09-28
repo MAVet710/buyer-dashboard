@@ -12,6 +12,7 @@ async function fixture(page: Page, role = "dev") {
     observed.push(path);
     if (failed) { await route.fulfill({ status: 503, json: { detail: "Synthetic monitoring outage" } }); return; }
     await route.fulfill({ json: path.endsWith("/status") ? { state: "observing", notifications: "not_connected", last_success: 1790270000, dropped: 0, failures: 0 }
+      : path.endsWith("/guard") ? { state: "observing", threat_level: "normal", risk_score: 0, active_investigations: 0, metrc_write_protection: false, deception_armed: true, ai_state: "local_advisory", investigations: [] }
       : { total: 1, items: [{ id: "test-incident", title: "Repeated denied access", severity: "high", status: "open", occurrences: 10, evidence: { outcome: "all_observed_requests_denied" } }] } });
   });
   await page.goto(origin + "/e2e/fixtures/security-center.html");

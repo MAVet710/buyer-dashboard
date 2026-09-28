@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 
 ROOT = Path(__file__).resolve().parents[1]
 REVISION = "0086_cultivation_intelligence"
-LATEST_REVISION = "0089_connected_onboarding"
+LATEST_REVISION = "0090_security_guard"
 TABLES = (
     "cultivation_recipes", "cultivation_environment_zones", "cultivation_recipe_stages",
     "cultivation_telemetry_connections", "cultivation_devices", "cultivation_recipe_targets",

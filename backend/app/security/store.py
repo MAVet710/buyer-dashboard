@@ -1,4 +1,4 @@
-"""Bounded deterministic detection; database uniqueness prevents duplicate alerts."""
+﻿"""Bounded deterministic detection; database uniqueness prevents duplicate alerts."""
 import hashlib
 import json
 from uuid import uuid4, uuid5, NAMESPACE_URL
@@ -18,6 +18,7 @@ TITLES = {
     "scope_denials": "Repeated denied organization or facility access",
     "privileged_change": "Sensitive account administration recorded",
     "monitoring_degraded": "Security monitoring lost observations or encountered errors",
+    "guard_containment": "Security Guard entered containment",
     "test_alert": "TEST: DoobieLogic security notification",
 }
 
@@ -85,3 +86,4 @@ def serialize_incident(row):
     fields = ("id", "rule", "severity", "title", "first_seen", "last_seen", "occurrences",
               "status", "version", "notification_status", "notification_reference", "notification_attempts")
     return {**{field: getattr(row, field) for field in fields}, "evidence": json.loads(row.evidence_json)}
+

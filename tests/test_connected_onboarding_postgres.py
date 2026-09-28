@@ -13,7 +13,7 @@ from modules.coman.models import new_id
 
 def test_actual_0089_constraints_and_runtime_writes(pg,fixture_rows):
     x=fixture_rows
-    assert pg.scalar(sa.text('SELECT version_num FROM alembic_version'))=='0089_connected_onboarding'
+    assert pg.scalar(sa.text('SELECT version_num FROM alembic_version'))=='0090_security_guard'
     with Session(bind=pg,join_transaction_mode='create_savepoint') as s,s.begin():
         mode=AlphaOperatingMode(organization_id=x['org'],facility_id=x['facility'],mode='metrc_production',updated_by=x['user'])
         config=IntegrationConfiguration(organization_id=x['org'],facility_id=x['facility'],scope_type='facility',scope_key=new_id(),
