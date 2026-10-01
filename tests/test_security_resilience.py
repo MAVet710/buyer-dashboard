@@ -170,3 +170,53 @@ def test_local_ai_is_not_executed_inline_with_monitor_heartbeat(monkeypatch):
     assert elapsed < 0.25
     assert calls == []
     assert monitor.ai_review_state is not None
+
+
+def test_security_ai_uses_isolated_loopback_config_without_app_credentials(monkeypatch):
+    db = engine()
+    captured = {}
+    import backend.app.services.ai_runtime as ai_runtime_module
+    import services.ai.providers as providers_module
+
+    monkeypatch.setattr(ai_runtime_module, "runtime_configuration", lambda *_args: {
+        "local_llm_base_url": "https://shared-ai.example.invalid",
+        "local_llm_model": "shared-model",
+        "local_llm_api_key": "shared-secret",
+    })
+
+    class FakeProvider:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+        def health(self):
+            return SimpleNamespace(reachable=True)
+        def generate(self, request):
+            captured["request"] = request
+            return SimpleNamespace(text="Defensive review complete.")
+
+    monkeypatch.setattr(providers_module, "LocalOpenAIProvider", FakeProvider)
+    configured = settings(
+        security_local_llm_base_url="http://127.0.0.1:11434",
+        security_local_llm_model="gpt-oss:20b",
+        security_local_llm_timeout_seconds=25,
+        security_local_llm_max_tokens=256,
+        local_llm_api_key="shared-secret",
+        local_llm_access_client_id="shared-client",
+        local_llm_access_client_secret="shared-client-secret",
+    )
+    from backend.app.security.guard import local_ai_review
+    ok = local_ai_review(db, configured, {
+        "threat_level": "elevated",
+        "risk_score": 55,
+        "active_investigations": 1,
+        "metrc_write_protection": False,
+        "deception_armed": True,
+        "detail_json": "{}",
+    })
+    assert ok is True
+    assert captured["base_url"] == "http://127.0.0.1:11434"
+    assert captured["model"] == "gpt-oss:20b"
+    assert captured["api_key"] == ""
+    assert captured["access_client_id"] == ""
+    assert captured["access_client_secret"] == ""
+    assert captured["timeout_seconds"] == 25
+    assert captured["max_tokens"] == 256

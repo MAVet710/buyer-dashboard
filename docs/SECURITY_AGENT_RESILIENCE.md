@@ -59,3 +59,5 @@ The Security Guard AI route is local-only and never falls back to a cloud model.
 AI review runs independently from the core observer heartbeat. A slow or cold model cannot delay event persistence, heartbeat writes, notifier processing, or deterministic containment. The deterministic Guard remains authoritative; AI output is advisory text attached to an investigation.
 
 The host security configuration may set the local endpoint/model and a bounded timeout. No API key is required for the loopback Ollama instance, no recurring service is added, and cloud fallback remains disabled.
+
+The Security Guard has security-specific local model settings: SECURITY_LOCAL_LLM_BASE_URL, SECURITY_LOCAL_LLM_MODEL, SECURITY_LOCAL_LLM_TIMEOUT_SECONDS, and SECURITY_LOCAL_LLM_MAX_TOKENS. When these are set, the Guard does not inherit application-wide local-AI API keys or Access credentials. This keeps the defensive analyst on the intended loopback Ollama endpoint without rerouting other DoobieLogic agents.

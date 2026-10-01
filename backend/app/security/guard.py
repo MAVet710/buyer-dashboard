@@ -86,10 +86,19 @@ def local_ai_review(engine, settings, state):
         from services.ai.providers import LocalOpenAIProvider
         from services.ai.schemas import AIRequest
         cfg=runtime_configuration(engine,settings)
-        provider=LocalOpenAIProvider(base_url=str(cfg.get("local_llm_base_url") or ""),model=str(cfg.get("local_llm_model") or ""),
-            api_key=str(cfg.get("local_llm_api_key") or ""),access_client_id=settings.local_llm_access_client_id,
-            access_client_secret=settings.local_llm_access_client_secret,timeout_seconds=min(settings.local_llm_timeout_seconds,45),
-            max_tokens=min(settings.local_llm_max_tokens,700),temperature=0.1)
+        security_base=str(settings.security_local_llm_base_url or "").strip()
+        security_model=str(settings.security_local_llm_model or "").strip()
+        base_url=security_base or str(cfg.get("local_llm_base_url") or "")
+        model=security_model or str(cfg.get("local_llm_model") or "")
+        timeout=(settings.security_local_llm_timeout_seconds
+                 if security_base and security_model else min(settings.local_llm_timeout_seconds,45))
+        max_tokens=(settings.security_local_llm_max_tokens
+                    if security_base and security_model else min(settings.local_llm_max_tokens,700))
+        provider=LocalOpenAIProvider(base_url=base_url,model=model,
+            api_key="" if security_base and security_model else str(cfg.get("local_llm_api_key") or ""),
+            access_client_id="" if security_base and security_model else settings.local_llm_access_client_id,
+            access_client_secret="" if security_base and security_model else settings.local_llm_access_client_secret,
+            timeout_seconds=timeout,max_tokens=max_tokens,temperature=0.1)
         if not provider.health().reachable:
             return False
         bounded={"threat_level":state["threat_level"],"risk_score":state["risk_score"],
