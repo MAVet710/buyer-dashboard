@@ -51,7 +51,7 @@ def evaluate(session, now):
             .order_by(E.occurred_at.desc()).limit(2000)).all()
         by_subject, by_source = {}, {}
         for subject, source, actor, route, request, timestamp in samples:
-            value = {"actor_id": actor, "route": route, "request_id": request, "occurred_at": timestamp}
+            value = {"account_id": actor or "", "route": route, "request_id": request, "occurred_at": timestamp}
             for target, key in ((by_subject, subject), (by_source, source)):
                 bucket = target.setdefault(key, [])
                 if len(bucket) < 3:

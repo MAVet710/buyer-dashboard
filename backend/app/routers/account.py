@@ -187,13 +187,21 @@ def username_login(payload: UsernameLogin, engine: Engine = Depends(get_engine),
     # Only normalized account identity enters the HMAC helper; passwords and
     # returned tokens never enter telemetry. Provider outages are not bad logins.
     subject = payload.username.strip().casefold()
+    # Resolve only durable known-account identity for telemetry. Unknown submitted
+    # usernames remain HMAC-only so Security Center cannot become an enumeration store.
+    account_id = ""
+    if subject:
+        with Session(engine) as session:
+            known = session.scalar(select(AppUser.id).where(AppUser.normalized_username == subject))
+            from ..security.privacy import pseudonym
+            account_id = pseudonym(settings.security_hmac_secret, "known-account", str(known)) if known and settings.security_hmac_secret else ""
     try:
         result = _username_login(payload, engine, settings)
     except HTTPException as exc:
         if exc.status_code == 400 and exc.detail == "Invalid login credentials.":
-            observe(request, "login_failure", subject)
+            observe(request, "login_failure", subject, actor_id=account_id)
         raise
-    observe(request, "login_success", subject)
+    observe(request, "login_success", subject, actor_id=account_id)
     return result
 
 
