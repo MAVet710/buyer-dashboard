@@ -43,7 +43,18 @@ def _conceptual_question(question: str) -> bool:
         "how should i ", "how do i ", "what does ", "what could ", "what can ",
         "what operational causes ", "why would ", "explain ", "when should ",
     )
-    return normalized.startswith(conceptual_starts)
+    if normalized.startswith(conceptual_starts):
+        return True
+    # Explicit hypothetical workflow questions describe the relevant facts in
+    # the prompt. They do not need a full tenant dataset sweep unless the user
+    # asks about actual records ("which orders", "show me", "our orders", etc.).
+    hypothetical_markers = (
+        "what should the operator do next",
+        "what should an operator do next",
+        "what should the operator do",
+        "what should an operator do",
+    )
+    return any(marker in normalized for marker in hypothetical_markers)
 
 
 
