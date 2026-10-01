@@ -11,7 +11,7 @@ import hashlib
 import json
 
 import pandas as pd
-from sqlalchemy import Engine, func, select
+from sqlalchemy import Engine, func, select, text
 from sqlalchemy.orm import Session
 
 from modules.coman.models import Facility, InventoryLot
@@ -87,6 +87,11 @@ class CurrentInventoryObservation:
         try:
             organization_id, facility_id = self.scope
             with Session(self.engine) as session:
+                # AI context assembly must never make an operator wait on a slow
+                # database observation. Fail closed and let the agent disclose
+                # unavailable live evidence instead of freezing the whole turn.
+                if self.engine.dialect.name == "postgresql":
+                    session.execute(text("SET LOCAL statement_timeout='3000ms'"))
                 allowed = session.scalar(select(Facility.id).where(
                     Facility.id == facility_id,
                     Facility.organization_id == organization_id,
