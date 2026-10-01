@@ -18,6 +18,9 @@ TITLES = {
     "scope_denials": "Repeated denied organization or facility access",
     "privileged_change": "Sensitive account administration recorded",
     "monitoring_degraded": "Security monitoring lost observations or encountered errors",
+    "defender_alert": "Windows Defender reported a security event",
+    "supabase_auth_failures": "Supabase Auth reported repeated failed authentication activity",
+    "alert_delivery_degraded": "Security alert delivery is unavailable or degraded",
     "test_alert": "TEST: DoobieLogic security notification",
 }
 
@@ -49,7 +52,16 @@ def open_incident(session, rule, key, count, now, evidence=None, severity="high"
     session.execute(insert_for(session, SecurityIncident).values(**values).on_conflict_do_update(
         index_elements=["fingerprint"], set_={"last_seen": now, "occurrences": count,
         "evidence_json": values["evidence_json"]}))
-    return session.scalar(select(SecurityIncident).where(SecurityIncident.fingerprint == fingerprint))
+    row = session.scalar(select(SecurityIncident).where(SecurityIncident.fingerprint == fingerprint))
+    if row is not None and row.status in {"recovered", "resolved"}:
+        row.status = "open"
+        row.recovered_at = 0
+        row.recovery_json = "{}"
+        row.version += 1
+        if row.notification_status in {"accepted", "uncertain"}:
+            row.notification_status = "pending"
+            row.notification_reference = ""
+    return row
 
 
 def collect_privileged_audits(session, secret, now):
@@ -81,7 +93,48 @@ def detect(session, now):
     return saturated
 
 
+
+def recover_rule_incidents(session, rule, now, recovery, *, minimum_age=20):
+    rows = list(session.scalars(select(SecurityIncident).where(
+        SecurityIncident.rule == rule,
+        SecurityIncident.status.in_(("open", "acknowledged")),
+        SecurityIncident.last_seen <= now - minimum_age,
+    ).order_by(SecurityIncident.last_seen.desc()).limit(100)))
+    for row in rows:
+        row.status = "recovered"
+        row.recovered_at = now
+        row.recovery_json = json.dumps(recovery, sort_keys=True)
+        row.version += 1
+    return len(rows)
+
+def recover_monitoring_incidents(session, now, worker_id, lifetime_failures, lifetime_dropped, clean_cycles):
+    if clean_cycles < 3:
+        return 0
+    rows = list(session.scalars(select(SecurityIncident).where(
+        SecurityIncident.rule == "monitoring_degraded",
+        SecurityIncident.status.in_(("open", "acknowledged")),
+        SecurityIncident.last_seen <= now - 20,
+    ).order_by(SecurityIncident.last_seen.desc()).limit(100)))
+    count = 0
+    for row in rows:
+        row.status = "recovered"
+        row.recovered_at = now
+        row.recovery_json = json.dumps({
+            "recovered_by_worker": worker_id,
+            "clean_cycles": clean_cycles,
+            "lifetime_failures": lifetime_failures,
+            "lifetime_dropped": lifetime_dropped,
+            "recovered_at": now,
+        }, sort_keys=True)
+        row.version += 1
+        count += 1
+    return count
+
+
 def serialize_incident(row):
     fields = ("id", "rule", "severity", "title", "first_seen", "last_seen", "occurrences",
-              "status", "version", "notification_status", "notification_reference", "notification_attempts")
-    return {**{field: getattr(row, field) for field in fields}, "evidence": json.loads(row.evidence_json)}
+              "status", "version", "notification_status", "notification_reference", "notification_attempts",
+              "recovered_at")
+    return {**{field: getattr(row, field) for field in fields},
+            "evidence": json.loads(row.evidence_json),
+            "recovery": json.loads(row.recovery_json or "{}")}

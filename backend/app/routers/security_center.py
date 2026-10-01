@@ -34,13 +34,24 @@ def status(request: Request, context=Depends(security_context), engine: Engine =
     health = monitor.health() if monitor else {"state": "not_started", "notifications": "not_connected"}
     try:
         with Session(engine) as session:
-            workers = session.execute(select(SecurityMonitorState.checked_at, SecurityMonitorState.status,
-                SecurityMonitorState.dropped, SecurityMonitorState.failures)
-                .where(SecurityMonitorState.id.like("worker:%"), SecurityMonitorState.checked_at >= time.time() - 86400)
-                .order_by(SecurityMonitorState.checked_at.desc()).limit(20)).all()
-            active = session.scalar(select(func.count()).select_from(SecurityIncident).where(SecurityIncident.status != "resolved"))
-        return {**health, "open_incidents": active, "workers": [dict(checked_at=t, state=s, dropped=d, failures=f,
-            stale=time.time() - t > 30) for t,s,d,f in workers]}
+            workers = session.execute(select(
+                SecurityMonitorState.checked_at, SecurityMonitorState.status,
+                SecurityMonitorState.dropped, SecurityMonitorState.failures,
+                SecurityMonitorState.last_error_category, SecurityMonitorState.last_error_at,
+                SecurityMonitorState.clean_cycles,
+            ).where(
+                SecurityMonitorState.id.like("worker:%"),
+                SecurityMonitorState.checked_at >= time.time() - 86400,
+            ).order_by(SecurityMonitorState.checked_at.desc()).limit(20)).all()
+            active = session.scalar(select(func.count()).select_from(SecurityIncident).where(
+                SecurityIncident.status.in_(("open", "acknowledged"))
+            ))
+        return {**health, "open_incidents": active, "workers": [
+            dict(checked_at=t, state=s, dropped=d, failures=f,
+                 last_error_category=category or None, last_error_at=error_at or None,
+                 clean_cycles=clean, stale=time.time() - t > 30)
+            for t,s,d,f,category,error_at,clean in workers
+        ]}
     except SQLAlchemyError:
         raise HTTPException(503, "Security storage unavailable; monitoring coverage is not verified.") from None
 
