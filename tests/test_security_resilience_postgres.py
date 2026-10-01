@@ -20,6 +20,13 @@ def test_security_resilience_head_schema_and_runtime_grants(pg):
     assert pg.scalar(sa.text(
         "SELECT relrowsecurity FROM pg_class WHERE oid='public.security_source_state'::regclass"
     )) is True
+    for table in ("security_guard_state", "security_investigations", "security_source_state"):
+        assert pg.scalar(sa.text(
+            "SELECT has_table_privilege('doobielogic_render_runtime',:table,'SELECT,INSERT,UPDATE')"
+        ), {"table": table})
+        assert not pg.scalar(sa.text(
+            "SELECT has_table_privilege('doobielogic_render_runtime',:table,'DELETE')"
+        ), {"table": table})
 
     pg.exec_driver_sql("SET LOCAL ROLE doobielogic_render_runtime")
     pg.execute(sa.text("""

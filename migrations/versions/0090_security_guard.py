@@ -33,7 +33,30 @@ def upgrade():
         for table in ("security_guard_state","security_investigations"):
             op.execute(f'ALTER TABLE public."{table}" ENABLE ROW LEVEL SECURITY')
             op.execute(f'REVOKE ALL PRIVILEGES ON TABLE public."{table}" FROM anon, authenticated')
+        op.execute("""DO $$ BEGIN
+          IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='doobielogic_render_runtime') THEN
+            GRANT SELECT, INSERT, UPDATE ON TABLE public.security_guard_state,
+              public.security_investigations TO doobielogic_render_runtime;
+          END IF;
+        END $$;""")
 
 def downgrade():
+    connection = op.get_bind()
+    tables = ("security_guard_state", "security_investigations")
+    if connection.dialect.name == "postgresql":
+        connection.execute(sa.text("SET LOCAL lock_timeout='5s'"))
+        connection.execute(sa.text(
+            "LOCK TABLE public.security_guard_state, public.security_investigations "
+            "IN ACCESS EXCLUSIVE MODE"
+        ))
+    elif connection.dialect.name != "sqlite":
+        raise RuntimeError("Unsupported database for Security Guard rollback.")
+    for name in tables:
+        table = sa.table(name, sa.column("id"))
+        if connection.execute(sa.select(table.c.id).limit(1)).first() is not None:
+            raise RuntimeError(
+                "Security Guard evidence exists. Preserve the additive schema; no Guard tables were dropped."
+            )
     op.drop_index("ix_security_investigation_status_risk",table_name="security_investigations")
-    op.drop_table("security_investigations"); op.drop_table("security_guard_state")
+    op.drop_table("security_investigations")
+    op.drop_table("security_guard_state")

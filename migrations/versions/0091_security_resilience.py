@@ -48,7 +48,8 @@ def upgrade():
         END $$;""")
         op.execute("""DO $$ BEGIN
           IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='doobielogic_render_runtime') THEN
-            GRANT SELECT, INSERT, UPDATE ON TABLE public.security_source_state TO doobielogic_render_runtime;
+            GRANT SELECT, INSERT, UPDATE ON TABLE public.security_source_state,
+              public.security_guard_state, public.security_investigations TO doobielogic_render_runtime;
             GRANT UPDATE (recovered_at,recovery_json,status,version,evidence_json,last_seen,occurrences)
               ON public.security_incidents TO doobielogic_render_runtime;
             GRANT UPDATE (checked_at,status,dropped,failures,last_error_category,last_error_at,clean_cycles)

@@ -108,3 +108,23 @@ def test_long_known_account_evidence_refuses_downgrade(tmp_path):
     result = run("downgrade", "0090_security_guard", success=False)
     assert "Preserve the additive schema" in result.stderr
     assert revision(url) == "0091_security_resilience"
+
+
+def test_0090_guard_evidence_refuses_rollback(tmp_path):
+    url, run = runner(tmp_path)
+    run("upgrade", "0090_security_guard")
+    engine = create_engine(url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("""
+                INSERT INTO security_guard_state
+                  (id,checked_at,state,threat_level,risk_score,active_investigations,
+                   metrc_write_protection,deception_armed,ai_state,ai_last_success,detail_json)
+                VALUES
+                  ('guard:primary',1,'observing','normal',0,0,0,1,'not_checked',0,'{}')
+            """))
+    finally:
+        engine.dispose()
+    result = run("downgrade", "0089_connected_onboarding", success=False)
+    assert "Preserve the additive schema" in result.stderr
+    assert revision(url) == "0090_security_guard"
