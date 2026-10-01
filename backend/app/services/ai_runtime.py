@@ -149,7 +149,7 @@ def _native_provider_order(config: dict[str, Any], settings: Settings) -> tuple[
     return order, mode, allow_fallback
 
 
-def build_runtime(*, engine: Engine, settings: Settings, context: RequestContext, operation_type: str, agent_key: str = "") -> tuple[Any, Any, str, str, dict[str, Any]]:
+def build_runtime(*, engine: Engine, settings: Settings, context: RequestContext, operation_type: str, agent_key: str = "", probe_health: bool = True) -> tuple[Any, Any, str, str, dict[str, Any]]:
     (
         AgentRuntime,
         KnowledgeRetriever,
@@ -227,13 +227,17 @@ def build_runtime(*, engine: Engine, settings: Settings, context: RequestContext
             "openai": (settings.ai_openai_input_cost_per_million, settings.ai_openai_output_cost_per_million),
         },
     )
-    return runtime, access, organization_name, facility_name, {
+    status = {
         **_public_runtime_configuration(config),
-        "providers": router.health(),
-        "embedding": embeddings.health().__dict__ if embeddings else {"configured": False, "reachable": False, "model": "", "detail": "lexical fallback active"},
-        "knowledge": store.health(KnowledgeScope(context.organization_id, context.facility_id)),
         "dataset_registry": list(registry.keys()),
     }
+    if probe_health:
+        status.update({
+            "providers": router.health(),
+            "embedding": embeddings.health().__dict__ if embeddings else {"configured": False, "reachable": False, "model": "", "detail": "lexical fallback active"},
+            "knowledge": store.health(KnowledgeScope(context.organization_id, context.facility_id)),
+        })
+    return runtime, access, organization_name, facility_name, status
 
 
 def run_bounded_ai(

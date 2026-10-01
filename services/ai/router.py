@@ -63,13 +63,17 @@ class ProviderRouter:
                 continue
             if not provider.local and not self.allow_cloud_fallback:
                 continue
-            health = provider.health()
-            if not health.configured or not health.reachable:
-                detail = self._safe_detail(health.detail)
-                reason = f"{name}:unavailable:{detail}" if detail else f"{name}:unavailable"
-                attempts.append(reason)
-                first_failure = first_failure or reason
-                continue
+            # LocalOpenAIProvider generation is already bounded and opts out of
+            # redundant synchronous preflight health checks. Other providers keep
+            # the historical fail-fast probe contract.
+            if getattr(provider, "generation_preflight_health", True):
+                health = provider.health()
+                if not health.configured or not health.reachable:
+                    detail = self._safe_detail(health.detail)
+                    reason = f"{name}:unavailable:{detail}" if detail else f"{name}:unavailable"
+                    attempts.append(reason)
+                    first_failure = first_failure or reason
+                    continue
             # Tool calls are required only for the first reasoning pass. Runtime
             # can pre-execute bounded tools before escalating to a provider that
             # does not support native tool calls.

@@ -26,6 +26,27 @@ from .validation import parse_structured, validate_agent_response
 TRACEABILITY_TOOLS = frozenset({"package_lineage", "recall_blast_radius"})
 
 
+def _conceptual_question(question: str) -> bool:
+    """Identify explanatory questions that do not ask for tenant operational facts."""
+    normalized = " ".join(str(question or "").strip().casefold().split())
+    if not normalized:
+        return False
+    live_markers = (
+        "show me", "which ", "our ", "my ", "today", "currently", "current ",
+        "right now", "this order", "this package", "this batch", "this run",
+        "these ", "how many", "what is costing", "what's costing", "ready to",
+        "stockout risk for", "overstocked sku", "blocked order", "unpaid customer",
+    )
+    if any(marker in normalized for marker in live_markers):
+        return False
+    conceptual_starts = (
+        "how should i ", "how do i ", "what does ", "what could ", "what can ",
+        "what operational causes ", "why would ", "explain ", "when should ",
+    )
+    return normalized.startswith(conceptual_starts)
+
+
+
 class AgentRuntime:
     """DoobieLogic-owned runtime: authorize -> deterministic/action -> local -> validate -> fallback."""
 
@@ -126,8 +147,9 @@ class AgentRuntime:
     ) -> AgentResult:
         request_id = uuid.uuid4().hex
         dataset_agent_key = profile.dataset_agent_key or profile.key
-        base_datasets = self.dataset_registry.load_for_agent(dataset_agent_key, access)
-        if profile.key == "wholesale":
+        conceptual = _conceptual_question(question)
+        base_datasets = {} if conceptual else self.dataset_registry.load_for_agent(dataset_agent_key, access)
+        if profile.key == "wholesale" and not conceptual:
             from services.wholesale_agent import load_wholesale_datasets
 
             datasets = {**load_wholesale_datasets(access), **base_datasets}
@@ -185,7 +207,7 @@ class AgentRuntime:
             )
 
         tools = ToolRegistry(datasets, knowledge_search=knowledge_search if self.retriever else None)
-        has_traceability_tools = register_traceability_tools(tools, access)
+        has_traceability_tools = False if conceptual else register_traceability_tools(tools, access)
         actions = AgentActionRegistry(profile=profile, access=access, question=question)
 
         deterministic_action = actions.deterministic_request()
@@ -285,13 +307,13 @@ class AgentRuntime:
             messages.append({"role": "user", "content": tool_result_message(trace_name, trace_result)})
             messages.append({"role": "user", "content": "The package-specific traceability facts above are canonical application data. Use them together with the authoritative retrieved sources; do not replace either evidence class with model memory."})
             used_tools.append(trace_name)
-        available_schemas = [*tools.schemas(), *actions.schemas()]
-        request = AIRequest(request_id=request_id, system_prompt=prompt, messages=messages, tools=available_schemas, response_schema=AGENT_RESPONSE_SCHEMA, metadata={"agent_key": profile.key, "sanitized_context": {"datasets": sorted(datasets), "action_tools": list(actions.names()), "precomputed_tools": used_tools}})
+        available_schemas = [] if conceptual else [*tools.schemas(), *actions.schemas()]
+        request = AIRequest(request_id=request_id, system_prompt=prompt, messages=messages, tools=available_schemas, response_schema=None if conceptual else AGENT_RESPONSE_SCHEMA, max_tokens=400, metadata={"agent_key": profile.key, "sanitized_context": {"datasets": sorted(datasets), "action_tools": list(actions.names()), "precomputed_tools": used_tools}})
         decision = None
         final_response = None
         bounded_context_used = False
         try:
-            if datasets or actions.names() or has_traceability_tools:
+            if not conceptual and (datasets or actions.names() or has_traceability_tools):
                 try:
                     decision = self.provider_router.generate(
                         request,
@@ -310,7 +332,7 @@ class AgentRuntime:
                     for name in list(datasets)[:12]:
                         context_rows[name] = tools.execute("preview_dataset", {"dataset": name, "limit": 5})
                     messages.append({"role": "user", "content": "Server-authorized bounded data context: " + json.dumps(context_rows, default=str)[:18000]})
-                    request = AIRequest(request_id=request_id, system_prompt=prompt, messages=messages, response_schema=AGENT_RESPONSE_SCHEMA, metadata={"agent_key": profile.key, "sanitized_context": context_rows})
+                    request = AIRequest(request_id=request_id, system_prompt=prompt, messages=messages, response_schema=AGENT_RESPONSE_SCHEMA, max_tokens=700, metadata={"agent_key": profile.key, "sanitized_context": context_rows})
                     decision = self.provider_router.generate(request, validate=validate_agent_response, require_structured=True)
                     final_response = decision.response
                 if decision and decision.response.tool_calls and final_response is None:
@@ -332,13 +354,19 @@ class AgentRuntime:
                                 )
                             messages.append({"role": "user", "content": tool_result_message(call.name, outcome)})
                         used_tools.append(call.name)
-                    followup = AIRequest(request_id=request_id, system_prompt=prompt, messages=messages, response_schema=AGENT_RESPONSE_SCHEMA, metadata={"agent_key": profile.key, "sanitized_context": {"tool_results_supplied": used_tools, "action_results": actions.results}})
+                    followup = AIRequest(request_id=request_id, system_prompt=prompt, messages=messages, response_schema=AGENT_RESPONSE_SCHEMA, max_tokens=700, metadata={"agent_key": profile.key, "sanitized_context": {"tool_results_supplied": used_tools, "action_results": actions.results}})
                     final_decision = self.provider_router.generate(followup, validate=validate_agent_response, require_structured=True)
                     final_response = final_decision.response
                     if final_decision.fallback_used and not decision.fallback_used:
                         decision = final_decision
             else:
-                decision = self.provider_router.generate(request, validate=validate_agent_response, require_structured=True)
+                if conceptual:
+                    decision = self.provider_router.generate(
+                        request,
+                        validate=lambda response: (bool(str(response.text or "").strip()), "direct_answer"),
+                    )
+                else:
+                    decision = self.provider_router.generate(request, validate=validate_agent_response, require_structured=True)
                 final_response = decision.response
         except ProviderUnavailable as exc:
             if actions.results:
