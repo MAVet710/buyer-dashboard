@@ -212,12 +212,32 @@ class LocalOpenAIProvider:
             payload["tool_choice"] = "auto"
         if structured_request and request.response_schema is not None:
             payload["response_format"] = self._structured_response_format(request.response_schema)
+        native_ollama = self.model.casefold().startswith("qwen3") and self.base_url.rstrip("/").endswith("/v1")
+        endpoint = self._endpoint("chat/completions")
+        request_payload = payload
+        if native_ollama:
+            endpoint = self.base_url.rstrip("/")[:-3].rstrip("/") + "/api/chat"
+            request_payload = {
+                "model": self.model,
+                "messages": messages,
+                "stream": False,
+                "think": False,
+                "keep_alive": "30m",
+                "options": {
+                    "temperature": payload["temperature"],
+                    "num_predict": payload["max_tokens"],
+                },
+            }
+            if request.tools:
+                request_payload["tools"] = request.tools
+            if structured_request and request.response_schema is not None:
+                request_payload["format"] = request.response_schema
         started = time.perf_counter()
         try:
             response = requests.post(
-                self._endpoint("chat/completions"),
+                endpoint,
                 headers=self._headers(),
-                json=payload,
+                json=request_payload,
                 timeout=self.timeout_seconds,
             )
         except requests.Timeout as exc:
@@ -231,12 +251,18 @@ class LocalOpenAIProvider:
             raise ProviderUnavailable(f"Local AI returned HTTP {response.status_code}{suffix}")
         try:
             body = response.json()
-            choice = (body.get("choices") or [])[0]
-            message = choice.get("message") or {}
+            if native_ollama:
+                message = body.get("message") or {}
+                choice = {"message": message, "finish_reason": body.get("done_reason") or ""}
+            else:
+                choice = (body.get("choices") or [])[0]
+                message = choice.get("message") or {}
         except (ValueError, IndexError, TypeError) as exc:
             raise ProviderProtocolError("Local AI returned malformed JSON.") from exc
         text = str(message.get("content") or "").strip()
         usage = body.get("usage") or {}
+        if native_ollama:
+            usage = {"prompt_tokens": body.get("prompt_eval_count") or 0, "completion_tokens": body.get("eval_count") or 0}
         structured = None
         if request.response_schema and text:
             try:
