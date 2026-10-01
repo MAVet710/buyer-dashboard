@@ -199,6 +199,12 @@ class LocalOpenAIProvider:
             "temperature": request.temperature if request.temperature is not None else self.temperature,
             "max_tokens": min(int(request.max_tokens or self.max_tokens), self.max_tokens),
         }
+        # Ollama reasoning-capable models (notably Qwen3) may spend the entire
+        # completion budget in hidden thinking unless normal operator requests
+        # explicitly disable it. Deep reasoning belongs in bounded background
+        # workflows, not every interactive Doobie turn.
+        if self.model.casefold().startswith("qwen3"):
+            payload["think"] = False
         if self.model.casefold().startswith("gpt-oss"):
             payload["reasoning_effort"] = "low"
         if request.tools:
