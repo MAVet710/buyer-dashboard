@@ -183,9 +183,82 @@ class LocalOpenAIProvider:
             f"Response schema: {compact_schema}"
         )
 
+    def _generate_ollama_qwen(self, request: AIRequest) -> AIResponse:
+        base = self.base_url.rstrip("/")[:-3]
+        structured_request = bool(request.response_schema and not request.tools)
+        system_prompt = (
+            self._structured_system_prompt(request.system_prompt, request.response_schema)
+            if structured_request and request.response_schema is not None
+            else request.system_prompt
+        )
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "messages": [{"role": "system", "content": system_prompt}, *request.messages],
+            "stream": False,
+            "think": False,
+            "keep_alive": "30m",
+            "options": {
+                "temperature": request.temperature if request.temperature is not None else self.temperature,
+                "num_predict": min(int(request.max_tokens or self.max_tokens), self.max_tokens),
+            },
+        }
+        if request.tools:
+            payload["tools"] = request.tools
+        if structured_request and request.response_schema is not None:
+            payload["format"] = request.response_schema
+        started = time.perf_counter()
+        try:
+            response = requests.post(
+                f"{base}/api/chat",
+                headers=self._headers(),
+                json=payload,
+                timeout=self.timeout_seconds,
+            )
+        except requests.Timeout as exc:
+            raise ProviderTimeout("Local AI request timed out.") from exc
+        except requests.RequestException as exc:
+            raise ProviderUnavailable(f"Local AI request failed: {exc.__class__.__name__}") from exc
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        if response.status_code >= 400:
+            detail = self._http_error_detail(response)
+            suffix = f": {detail}" if detail else "."
+            raise ProviderUnavailable(f"Local AI returned HTTP {response.status_code}{suffix}")
+        try:
+            body = response.json()
+            message = body.get("message") or {}
+        except (ValueError, TypeError) as exc:
+            raise ProviderProtocolError("Local AI returned malformed JSON.") from exc
+        text = str(message.get("content") or "").strip()
+        structured = None
+        if request.response_schema and text:
+            try:
+                value = json.loads(text)
+                structured = value if isinstance(value, dict) else None
+            except json.JSONDecodeError:
+                structured = None
+        return AIResponse(
+            text=text,
+            provider=self.name,
+            model=self.model,
+            local=True,
+            tool_calls=self._tool_calls(message),
+            structured=structured,
+            input_tokens=int(body.get("prompt_eval_count") or 0),
+            output_tokens=int(body.get("eval_count") or 0),
+            latency_ms=latency_ms,
+            finish_reason=str(body.get("done_reason") or ""),
+        )
+
     def generate(self, request: AIRequest) -> AIResponse:
         if not self.base_url or not self.model:
             raise ProviderUnavailable("Local AI endpoint/model is not configured.")
+        # Ollama's OpenAI-compatible endpoint currently ignores `think: false` for
+        # Qwen3 and can exhaust the entire completion budget in hidden reasoning.
+        # Use Ollama's native chat endpoint for Qwen3 so interactive Doobie turns
+        # can explicitly disable thinking. Other local servers keep the generic
+        # OpenAI-compatible contract.
+        if self.model.casefold().startswith("qwen3") and self.base_url.rstrip("/").endswith("/v1"):
+            return self._generate_ollama_qwen(request)
         structured_request = bool(request.response_schema and not request.tools)
         system_prompt = (
             self._structured_system_prompt(request.system_prompt, request.response_schema)
