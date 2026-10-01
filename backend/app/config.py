@@ -16,6 +16,12 @@ class Settings(BaseSettings):
     security_event_capacity: int = Field(default=100000, ge=1000, le=500000)
     security_hmac_secret: str = ""
     security_trusted_proxy_cidrs: str = ""
+    # Security Guard local-only analyst. Separate from app-wide AI routing so
+    # enabling defensive review cannot silently reroute other DoobieLogic agents.
+    security_local_llm_base_url: str = ""
+    security_local_llm_model: str = ""
+    security_local_llm_timeout_seconds: float = Field(default=45.0, ge=5.0, le=120.0)
+    security_local_llm_max_tokens: int = Field(default=700, ge=64, le=1400)
 
     doobielogic_advisory_organization_id: str = ""
     doobielogic_advisory_booking_url: str = ""

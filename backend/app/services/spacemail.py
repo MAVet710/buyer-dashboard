@@ -47,6 +47,17 @@ def resolve_spacemail_settings(engine: Engine, settings: Settings) -> Settings:
     if not row:
         return settings
     configuration = service.public(row)["configuration"]
+    # Resend does not need the legacy SMTP password. A stale encrypted mailbox
+    # credential must not disable a valid deployment-level Resend transport.
+    if settings.resend_is_configured:
+        return settings.model_copy(update={
+            "spacemail_smtp_username": str(configuration.get("smtp_username") or settings.spacemail_smtp_username),
+            "spacemail_from_email": str(configuration.get("from_email") or settings.spacemail_from_email),
+            "spacemail_from_name": str(configuration.get("from_name") or settings.spacemail_from_name),
+            "spacemail_support_email": str(configuration.get("support_email") or settings.spacemail_support_email),
+            "spacemail_help_email": str(configuration.get("help_email") or settings.spacemail_help_email),
+            "spacemail_info_email": str(configuration.get("info_email") or settings.spacemail_info_email),
+        })
     secret = service.secret(row)
     if not secret:
         return settings

@@ -10,7 +10,7 @@ class SecurityEvent(Base):
     kind = Column(String(40), nullable=False)
     subject_key = Column(String(64), nullable=False, default="")
     source_key = Column(String(64), nullable=False, default="")
-    actor_id = Column(String(36), nullable=False, default="")
+    actor_id = Column(String(64), nullable=False, default="")
     organization_id = Column(String(36), nullable=False, default="")
     route = Column(String(200), nullable=False, default="")
     request_id = Column(String(36), nullable=False, default="")
@@ -39,6 +39,8 @@ class SecurityIncident(Base):
     notification_updated_at = Column(Float, nullable=False, default=0)
     notification_reference = Column(String(120), nullable=False, default="")
     notification_attempts = Column(Integer, nullable=False, default=0)
+    recovered_at = Column(Float, nullable=False, default=0)
+    recovery_json = Column(Text, nullable=False, default="{}")
     __table_args__ = (Index("ix_security_incident_time", "last_seen"),
                       Index("ix_security_incident_notification", "notification_status", "notification_updated_at"))
 
@@ -50,6 +52,9 @@ class SecurityMonitorState(Base):
     status = Column(String(32), nullable=False)
     dropped = Column(Integer, nullable=False, default=0)
     failures = Column(Integer, nullable=False, default=0)
+    last_error_category = Column(String(64), nullable=False, default="")
+    last_error_at = Column(Float, nullable=False, default=0)
+    clean_cycles = Column(Integer, nullable=False, default=0)
 
 
 class SecurityGuardState(Base):
@@ -85,3 +90,15 @@ class SecurityInvestigation(Base):
     containment_json = Column(Text, nullable=False, default="{}")
     evidence_hash = Column(String(64), nullable=False, default="")
     __table_args__ = (Index("ix_security_investigation_status_risk", "status", "risk_score", "updated_at"),)
+
+
+class SecuritySourceState(Base):
+    __tablename__ = "security_source_state"
+    id = Column(String(80), primary_key=True)
+    checked_at = Column(Float, nullable=False)
+    status = Column(String(32), nullable=False)
+    cursor = Column(String(160), nullable=False, default="")
+    failures = Column(Integer, nullable=False, default=0)
+    last_error_category = Column(String(64), nullable=False, default="")
+    last_event_at = Column(Float, nullable=False, default=0)
+    detail_json = Column(Text, nullable=False, default="{}")

@@ -11,9 +11,9 @@ async function fixture(page: Page, role = "dev") {
     }
     observed.push(path);
     if (failed) { await route.fulfill({ status: 503, json: { detail: "Synthetic monitoring outage" } }); return; }
-    await route.fulfill({ json: path.endsWith("/status") ? { state: "observing", notifications: "not_connected", last_success: 1790270000, dropped: 0, failures: 0 }
+    await route.fulfill({ json: path.endsWith("/status") ? { state: "observing", notifications: "not_connected", last_success: 1790270000, dropped: 0, failures: 6, new_failures: 0, new_dropped: 0, clean_cycles: 8, last_error_category: "database_connection_timeout", last_error_at: 1790260000, perimeter: { "windows:defender": { status: "observing", failures: 0, checked_at: 1790270000 }, "supabase:auth_audit": { status: "connected_empty", failures: 0, checked_at: 1790270000 }, "cloudflare:tunnel": { status: "tunnel_liveness_only", failures: 0, checked_at: 1790270000 } } }
       : path.endsWith("/guard") ? { state: "observing", threat_level: "normal", risk_score: 0, active_investigations: 0, metrc_write_protection: false, deception_armed: true, ai_state: "local_advisory", investigations: [] }
-      : { total: 1, items: [{ id: "test-incident", title: "Repeated denied access", severity: "high", status: "open", occurrences: 10, evidence: { outcome: "all_observed_requests_denied" } }] } });
+      : { total: 1, items: [{ id: "test-incident", rule: "scope_denials", title: "Repeated denied access", severity: "high", status: "open", occurrences: 10, evidence: { outcome: "all_observed_requests_denied" } }] } });
   });
   await page.goto(origin + "/e2e/fixtures/security-center.html");
   return { observed, fail: () => { failed = true; } };
@@ -24,7 +24,11 @@ test("DEV review loads on demand and explains disconnected alerts", async ({ pag
   await expect(summary).toBeVisible(); expect(state.observed).toEqual([]);
   await summary.click();
   await expect(page.getByText("Repeated denied access", { exact: true })).toBeVisible();
-  await expect(page.getByText("Email is not connected unless explicitly configured and verified", { exact: false })).toBeVisible();
+  await expect(page.getByText("Provider acceptance is not inbox delivery", { exact: false })).toBeVisible();
+  await expect(page.getByText("Windows Defender", { exact: true })).toBeVisible();
+  await expect(page.getByText("Supabase Auth", { exact: true })).toBeVisible();
+  await expect(page.getByText("Cloudflare Tunnel", { exact: true })).toBeVisible();
+  await expect(page.getByText("New failures since the last persisted cycle: 0", { exact: false })).toBeVisible();
   expect(state.observed).toContain("/api/v1/security/status");
 });
 test("customer administrator cannot see or fetch platform incident panel", async ({ page }) => {

@@ -542,6 +542,6 @@ def test_final_migration_chain_is_single_0086_head():
     from alembic.config import Config
     from alembic.script import ScriptDirectory
     scripts = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert scripts.get_heads() == ["0090_security_guard"]
+    assert scripts.get_heads() == ["0091_security_resilience"]
     revision = scripts.get_revision("0086_cultivation_intelligence")
     assert revision.down_revision == "0085_cultivation_telemetry"

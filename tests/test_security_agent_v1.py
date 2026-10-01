@@ -29,9 +29,12 @@ def test_security_dataset_registration_is_secret_minimized():
     assert 'key="security_events"' in source
     assert 'key="security_incidents"' in source
     assert 'key="security_monitor_health"' in source
+    assert 'key="security_perimeter_health"' in source
     incident_block = source.split('key="security_incidents"', 1)[1].split("registry.register", 1)[0]
-    assert "evidence_json" in incident_block and "sensitive_columns" in incident_block
+    assert "evidence_json" in incident_block and "recovery_json" in incident_block and "sensitive_columns" in incident_block
     assert "notification_reference" in incident_block
+    perimeter_block = source.split('key="security_perimeter_health"', 1)[1].split("registry.register", 1)[0]
+    assert "detail_json" in perimeter_block and "cursor" in perimeter_block and "sensitive_columns" in perimeter_block
 
 
 def test_security_agent_forces_local_only_provider_route():
