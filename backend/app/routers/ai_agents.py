@@ -230,7 +230,7 @@ def run_agent(
 ):
     profile = _active_profile(payload.agent_key, payload.app_mode, payload.section)
     operation = _operation_type(payload.app_mode, profile)
-    runtime, access, organization_name, facility_name, _status = build_runtime(engine=engine, settings=settings, context=context, operation_type=operation, agent_key=profile.key)
+    runtime, access, organization_name, facility_name, _status = build_runtime(engine=engine, settings=settings, context=context, operation_type=operation, agent_key=profile.key, probe_health=False)
     history = [item.model_dump() for item in payload.history][-20:]
     regulatory_report: dict[str, Any] | None = None
     if profile.key == "compliance":

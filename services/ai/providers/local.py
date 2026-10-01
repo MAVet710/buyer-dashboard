@@ -16,6 +16,7 @@ class LocalOpenAIProvider:
     name = "local"
     local = True
     max_health_timeout_seconds = 20.0
+    generation_preflight_health = False
 
     def __init__(
         self,

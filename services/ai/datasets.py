@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 import re
 from typing import Any, Callable, Iterable
@@ -82,14 +83,17 @@ class DatasetRegistry:
         return output
 
     def load_for_agent(self, agent_key: str, context: DatasetAccessContext) -> dict[str, LoadedDataset]:
-        output: dict[str, LoadedDataset] = {}
-        for spec in self.specs_for_agent(agent_key, context):
+        specs = self.specs_for_agent(agent_key, context)
+        if not specs:
+            return {}
+
+        def load_one(spec: DatasetSpec) -> tuple[str, LoadedDataset | None]:
             try:
                 raw = spec.loader(context)
             except Exception:
-                continue
+                return spec.key, None
             if raw is None:
-                continue
+                return spec.key, None
             if not isinstance(raw, pd.DataFrame):
                 raw = pd.DataFrame(raw)
             safe = sanitize_frame(
@@ -99,18 +103,21 @@ class DatasetRegistry:
                 sensitive_columns=spec.sensitive_columns,
             )
             if safe.empty and len(raw) > 0 and len(safe.columns) == 0:
-                continue
-            # Trusted loaders may supply a SHA-256 of business content. The
-            # runtime's existing source-version key includes freshness, so
-            # stock changes invalidate answers even when row counts do not.
-            # Never carry arbitrary loader metadata (or exception text) into
-            # provider prompts, telemetry or cache keys.
+                return spec.key, None
             version = raw.attrs.get("source_version")
             freshness = spec.freshness
             if isinstance(version, str) and re.fullmatch(r"[0-9a-f]{64}", version):
                 freshness = f"{freshness}; source_version={version}"
-            output[spec.key] = LoadedDataset(spec, safe, freshness)
-        return output
+            return spec.key, LoadedDataset(spec, safe, freshness)
+
+        # Each trusted loader is independently tenant/facility scoped. Production
+        # Supabase latency made serial loading multiply a ~2s round trip by every
+        # dataset before the model could even see the question. Bound concurrency
+        # so independent reads overlap without exhausting the SQLAlchemy pool.
+        workers = min(6, len(specs))
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="ai-dataset") as pool:
+            loaded = list(pool.map(load_one, specs))
+        return {key: value for key, value in loaded if value is not None}
 
     def describe(self, agent_key: str, context: DatasetAccessContext) -> list[dict[str, Any]]:
         return [
