@@ -1,4 +1,4 @@
-import { BarChart3, Boxes, Factory, Home, Menu, Moon, Settings, ShieldCheck, ShoppingCart, Sprout, Store, Sun } from "lucide-react";
+import { BarChart3, Boxes, Factory, Home, LogOut, Menu, Moon, Settings, ShieldCheck, ShoppingCart, Sprout, Store, Sun } from "lucide-react";
 import { useEffect, useMemo, useState, type PropsWithChildren } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet, clearTrialSession } from "../lib/api";
@@ -312,8 +312,8 @@ export function AppShell({ children, active, onNavigate }: PropsWithChildren<{ a
     sessionStorage.removeItem("buyer-dash-pending-page");
     clearTrialSession();
     client.clear();
-    if (isTrial) { window.location.reload(); return; }
-    await supabase?.auth.signOut();
+    if (!isTrial) await supabase?.auth.signOut();
+    window.location.assign("/login");
   };
 
   return <div className="app-shell">
@@ -342,7 +342,8 @@ export function AppShell({ children, active, onNavigate }: PropsWithChildren<{ a
           {selectedOrganization?.slug === "dev-sandbox" ? <span className="access-badge">{isTrial ? "24-hour Trial" : "DEV Sandbox"}</span> : null}
         </div>
         <button className="icon-button theme-toggle" title={`Switch to ${theme === "dark" ? "light" : "dark"} theme`} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`} onClick={() => setTheme(current => current === "dark" ? "light" : "dark")}>{theme === "dark" ? <Sun size={18}/> : <Moon size={18}/>}</button>
-        <button className="user-chip" onClick={signOut}>{context.data?.user.display_name || context.data?.user.email || "Developer"} · {role}</button>
+        <span className="user-chip" title={context.data?.user.email || undefined}>{context.data?.user.display_name || context.data?.user.email || "Developer"} · {role}</span>
+        <button className="icon-button logout-button" type="button" title="Log out" aria-label="Log out" onClick={signOut}><LogOut size={18}/><span>Log out</span></button>
       </header>
       <main><MobileNavigation primary={primary} category={activeCategory} secondary={secondary} settings={settings} active={active} operation={operation} dataMode={dataMode} onDataMode={changeDataMode} onCategory={chooseCategory} onNavigate={navigate}/><GlobalSearch onNavigate={navigate}/>{children}</main>
     </section>
