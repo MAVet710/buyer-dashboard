@@ -114,9 +114,19 @@ class DatasetRegistry:
         # Supabase latency made serial loading multiply a ~2s round trip by every
         # dataset before the model could even see the question. Bound concurrency
         # so independent reads overlap without exhausting the SQLAlchemy pool.
-        workers = min(6, len(specs))
-        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="ai-dataset") as pool:
-            loaded = list(pool.map(load_one, specs))
+        # Evidence/status datasets may intentionally observe state populated by
+        # their canonical business dataset loader. Preserve registration order for
+        # those dependency-linked pairs; parallelize the remaining independent
+        # reads.
+        dependent_suffixes = ("_evidence", "_status", "_summary")
+        independent = [spec for spec in specs if not spec.key.endswith(dependent_suffixes)]
+        dependent = [spec for spec in specs if spec.key.endswith(dependent_suffixes)]
+        loaded: list[tuple[str, LoadedDataset | None]] = []
+        if independent:
+            workers = min(6, len(independent))
+            with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="ai-dataset") as pool:
+                loaded.extend(pool.map(load_one, independent))
+        loaded.extend(load_one(spec) for spec in dependent)
         return {key: value for key, value in loaded if value is not None}
 
     def describe(self, agent_key: str, context: DatasetAccessContext) -> list[dict[str, Any]]:
