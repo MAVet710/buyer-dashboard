@@ -112,28 +112,51 @@ def test_frontend_production_fallback_is_dev_gated():
     )
 
 
-def test_logout_synchronously_clears_workspace_trial_and_supabase_storage():
-    source = (ROOT / "frontend/src/components/AppShell.tsx").read_text(
-        encoding="utf-8"
-    )
+def test_logout_runs_before_react_and_clears_all_auth_storage():
+    source = (ROOT / "frontend/src/main.tsx").read_text(encoding="utf-8")
+    logout_start = source.index('if (/^\\/logout')
+    react_start = source.index('const App = lazy(')
+    assert logout_start < react_start
 
     assert 'localStorage.removeItem("buyer-dash-organization")' in source
     assert 'localStorage.removeItem("buyer-dash-facility")' in source
+    assert 'localStorage.removeItem("buyer-dash-operation")' in source
     assert 'sessionStorage.removeItem("buyer-dash-pending-page")' in source
-    assert "clearTrialSession();" in source
-    assert 'key?.startsWith("sb-") && key.endsWith("-auth-token")' in source
-    assert 'supabase?.auth.signOut({ scope: "local" })' in source
-    assert 'window.location.replace("/")' in source
+    assert 'sessionStorage.removeItem("buyer-dash-trial-token")' in source
+    assert 'sessionStorage.removeItem("buyer-dash-trial-expires")' in source
+    assert 'key.startsWith("sb-") && key.includes("-auth-token")' in source
+    assert 'key.startsWith("supabase.auth.")' in source
+    assert "clearAuthStorage(localStorage);" in source
+    assert "clearAuthStorage(sessionStorage);" in source
+    assert 'window.location.replace("/?signed_out=1")' in source
+
+
+def test_every_signout_surface_uses_the_hard_logout_route():
+    app_shell = (ROOT / "frontend/src/components/AppShell.tsx").read_text(encoding="utf-8")
+    assert 'href="/logout"' in app_shell
+    assert "auth.signOut" not in app_shell
+
+    for relative in (
+        "frontend/src/components/AuthGate.tsx",
+        "frontend/src/components/LegalGate.tsx",
+        "frontend/src/components/PasswordGate.tsx",
+    ):
+        source = (ROOT / relative).read_text(encoding="utf-8")
+        assert "auth.signOut" not in source
+        assert 'window.location.replace("/logout")' in source
 
 
 def test_logout_does_not_install_or_restore_any_privileged_identity():
-    source = (ROOT / "frontend/src/components/AppShell.tsx").read_text(
-        encoding="utf-8"
-    )
-    logout = source[source.index("const signOut = () => {"):source.index(
-        "\n\n  return <div className=\"app-shell\">"
-    )]
+    source = (ROOT / "frontend/src/main.tsx").read_text(encoding="utf-8")
+    start = source.index('if (/^\\/logout')
+    end = source.index("const App = lazy(")
+    logout = source[start:end]
     assert "web-local-developer" not in logout
     assert '"X-User-Role"' not in logout
     assert '"god"' not in logout.casefold()
     assert "setSession" not in logout
+
+
+def test_logout_cache_version_forces_clients_off_the_old_shell():
+    worker = (ROOT / "frontend/public/service-worker.js").read_text(encoding="utf-8")
+    assert 'const CACHE_VERSION = "doobielogic-shell-v3";' in worker

@@ -38,16 +38,24 @@ declare global {
 // therefore sufficient even when an iOS tab has stale application state.
 if (/^\/logout\/?$/.test(window.location.pathname)) {
   try {
+    const clearAuthStorage = (storage: Storage) => {
+      for (let index = storage.length - 1; index >= 0; index -= 1) {
+        const key = storage.key(index);
+        if (!key) continue;
+        if ((key.startsWith("sb-") && key.includes("-auth-token")) || key.startsWith("supabase.auth.")) {
+          storage.removeItem(key);
+        }
+      }
+    };
     localStorage.removeItem("buyer-dash-organization");
     localStorage.removeItem("buyer-dash-facility");
+    localStorage.removeItem("buyer-dash-operation");
     localStorage.removeItem("buyer-dash-data-mode");
-    for (let index = localStorage.length - 1; index >= 0; index -= 1) {
-      const key = localStorage.key(index);
-      if (key?.startsWith("sb-") && key.endsWith("-auth-token")) localStorage.removeItem(key);
-    }
+    clearAuthStorage(localStorage);
     sessionStorage.removeItem("buyer-dash-pending-page");
     sessionStorage.removeItem("buyer-dash-trial-token");
     sessionStorage.removeItem("buyer-dash-trial-expires");
+    clearAuthStorage(sessionStorage);
   } finally {
     window.location.replace("/?signed_out=1");
   }

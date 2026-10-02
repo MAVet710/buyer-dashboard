@@ -83,7 +83,7 @@ export function PasswordGate({ children }: PropsWithChildren) {
   }
 
   if (context.isLoading) return <div className="auth-screen"><div className="auth-card"><div className="brand"><span>DL</span><strong>DoobieLogic</strong></div><div className="eyebrow">Secure workspace</div><h2>Restoring your workspace</h2><p>Refreshing your session and facility access. This will automatically stop and offer recovery if the API does not respond.</p></div></div>;
-  if (context.isError) return <div className="auth-screen"><div className="auth-card"><div className="brand"><span>DL</span><strong>DoobieLogic</strong></div><div className="eyebrow">Workspace recovery</div><h1>Access context unavailable</h1><p>{context.error.message}</p><p className="source-caption">Your login is still active. DoobieLogic can refresh the session, clear a stale facility selection, and retry without making you sign in again.</p><button className="primary" type="button" disabled={recovering} onClick={() => void recoverWorkspace()}>{recovering ? "Recovering workspace…" : "Recover workspace"}</button><button className="secondary" type="button" onClick={() => supabase?.auth.signOut()}>Sign out</button>{message ? <div className="form-error">{message}</div> : null}</div></div>;
+  if (context.isError) return <div className="auth-screen"><div className="auth-card"><div className="brand"><span>DL</span><strong>DoobieLogic</strong></div><div className="eyebrow">Workspace recovery</div><h1>Access context unavailable</h1><p>{context.error.message}</p><p className="source-caption">Your login is still active. DoobieLogic can refresh the session, clear a stale facility selection, and retry without making you sign in again.</p><button className="primary" type="button" disabled={recovering} onClick={() => void recoverWorkspace()}>{recovering ? "Recovering workspace…" : "Recover workspace"}</button><button className="secondary" type="button" onClick={() => window.location.replace("/logout")}>Sign out</button>{message ? <div className="form-error">{message}</div> : null}</div></div>;
   if (!context.data?.user.must_change_password) return <>{children}</>;
 
   return <div className="auth-screen"><form className="auth-card password-card" onSubmit={async event => {
@@ -108,7 +108,7 @@ export function PasswordGate({ children }: PropsWithChildren) {
     <label>New password<input type="password" autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)} /></label>
     <label>Confirm new password<input type="password" autoComplete="new-password" value={confirm} onChange={event => setConfirm(event.target.value)} /></label>
     <button className="primary" type="submit" disabled={saving}>{saving ? "Saving…" : "Set password & continue"}</button>
-    <button className="link-button" type="button" onClick={() => supabase?.auth.signOut()}>Sign out</button>
+    <button className="link-button" type="button" onClick={() => window.location.replace("/logout")}>Sign out</button>
     {message ? <div className="form-error">{message}</div> : null}
   </form></div>;
 }
