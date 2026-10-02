@@ -306,14 +306,20 @@ export function AppShell({ children, active, onNavigate }: PropsWithChildren<{ a
     client.clear();
     window.location.reload();
   };
-  const signOut = async () => {
+  const signOut = () => {
     localStorage.removeItem("buyer-dash-organization");
     localStorage.removeItem("buyer-dash-facility");
     sessionStorage.removeItem("buyer-dash-pending-page");
     clearTrialSession();
     client.clear();
-    if (!isTrial) await supabase?.auth.signOut();
-    window.location.assign("/");
+    // Supabase persists auth under an sb-*-auth-token key. Remove it
+    // synchronously so mobile navigation cannot race session restoration.
+    for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+      const key = localStorage.key(index);
+      if (key?.startsWith("sb-") && key.endsWith("-auth-token")) localStorage.removeItem(key);
+    }
+    if (!isTrial) void supabase?.auth.signOut({ scope: "local" }).catch(() => undefined);
+    window.location.replace("/");
   };
 
   return <div className="app-shell">
