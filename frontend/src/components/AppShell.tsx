@@ -313,7 +313,7 @@ export function AppShell({ children, active, onNavigate }: PropsWithChildren<{ a
     clearTrialSession();
     client.clear();
     if (!isTrial) await supabase?.auth.signOut();
-    window.location.assign("/login");
+    window.location.assign("/");
   };
 
   return <div className="app-shell">
