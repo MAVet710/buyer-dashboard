@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import Engine
 
+from services.quickbooks_payments import QuickBooksPaymentSyncService
 from services.quickbooks_purchasing import QuickBooksPurchasingSyncService
 from services.quickbooks_sync import QuickBooksSyncError
 from ..auth import RequestContext, get_request_context
@@ -22,6 +23,13 @@ def _require_admin(context: RequestContext) -> None:
 def _service(engine: Engine, settings: Settings) -> QuickBooksPurchasingSyncService:
     try:
         return QuickBooksPurchasingSyncService(engine, settings.integration_encryption_key)
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+
+def _payment_service(engine: Engine, settings: Settings) -> QuickBooksPaymentSyncService:
+    try:
+        return QuickBooksPaymentSyncService(engine, settings.integration_encryption_key)
     except RuntimeError as exc:
         raise HTTPException(503, str(exc)) from exc
 
@@ -58,6 +66,25 @@ def sync_quickbooks_purchase_order(
             organization_id=context.organization_id,
             facility_id=context.facility_id,
             order_id=order_id,
+            actor=context.user_id,
+        )
+    except QuickBooksSyncError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/payments/{payment_id}/sync")
+def sync_quickbooks_payment(
+    payment_id: str,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    _require_admin(context)
+    try:
+        return _payment_service(engine, settings).sync_payment(
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            payment_id=payment_id,
             actor=context.user_id,
         )
     except QuickBooksSyncError as exc:
