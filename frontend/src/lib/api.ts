@@ -86,7 +86,7 @@ async function requestHeaders(json = false): Promise<Record<string, string>> {
     "X-Organization-Id": localStorage.getItem("buyer-dash-organization") ?? metadata.organization_id ?? import.meta.env.VITE_ORGANIZATION_ID ?? "",
     "X-Facility-Id": localStorage.getItem("buyer-dash-facility") ?? metadata.facility_id ?? import.meta.env.VITE_FACILITY_ID ?? "",
     "X-DoobieLogic-Data-Mode": buyerDataMode(),
-    ...(token || trial ? {} : { "X-User-Id": "web-local-developer", "X-User-Role": "admin" }),
+    ...(token || trial || !import.meta.env.DEV ? {} : { "X-User-Id": "web-local-developer", "X-User-Role": "admin" }),
   };
 }
 
