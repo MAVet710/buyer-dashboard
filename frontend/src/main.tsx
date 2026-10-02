@@ -33,6 +33,27 @@ declare global {
   }
 }
 
+// Logout is intentionally handled before React, Supabase, service workers, or
+// workspace restoration can mount. A plain browser navigation to /logout is
+// therefore sufficient even when an iOS tab has stale application state.
+if (/^\/logout\/?$/.test(window.location.pathname)) {
+  try {
+    localStorage.removeItem("buyer-dash-organization");
+    localStorage.removeItem("buyer-dash-facility");
+    localStorage.removeItem("buyer-dash-data-mode");
+    for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+      const key = localStorage.key(index);
+      if (key?.startsWith("sb-") && key.endsWith("-auth-token")) localStorage.removeItem(key);
+    }
+    sessionStorage.removeItem("buyer-dash-pending-page");
+    sessionStorage.removeItem("buyer-dash-trial-token");
+    sessionStorage.removeItem("buyer-dash-trial-expires");
+  } finally {
+    window.location.replace("/?signed_out=1");
+  }
+  throw new Error("logout_redirect");
+}
+
 const App = lazy(() => import("./App"));
 const AuthGate = lazy(() => import("./components/AuthGate").then(module => ({ default: module.AuthGate })));
 const CommerceStorefrontLauncher = lazy(() => import("./components/CommerceStorefrontLauncher").then(module => ({ default: module.CommerceStorefrontLauncher })));

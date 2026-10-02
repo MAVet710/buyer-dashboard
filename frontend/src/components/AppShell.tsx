@@ -1,8 +1,7 @@
 import { BarChart3, Boxes, Factory, Home, LogOut, Menu, Moon, Settings, ShieldCheck, ShoppingCart, Sprout, Store, Sun } from "lucide-react";
 import { useEffect, useMemo, useState, type PropsWithChildren } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiGet, clearTrialSession } from "../lib/api";
-import { supabase } from "../lib/supabase";
+import { apiGet } from "../lib/api";
 import { GlobalSearch } from "./GlobalSearch";
 import { WorkspaceAgent } from "./WorkspaceAgent";
 
@@ -306,21 +305,6 @@ export function AppShell({ children, active, onNavigate }: PropsWithChildren<{ a
     client.clear();
     window.location.reload();
   };
-  const signOut = () => {
-    localStorage.removeItem("buyer-dash-organization");
-    localStorage.removeItem("buyer-dash-facility");
-    sessionStorage.removeItem("buyer-dash-pending-page");
-    clearTrialSession();
-    client.clear();
-    // Supabase persists auth under an sb-*-auth-token key. Remove it
-    // synchronously so mobile navigation cannot race session restoration.
-    for (let index = localStorage.length - 1; index >= 0; index -= 1) {
-      const key = localStorage.key(index);
-      if (key?.startsWith("sb-") && key.endsWith("-auth-token")) localStorage.removeItem(key);
-    }
-    if (!isTrial) void supabase?.auth.signOut({ scope: "local" }).catch(() => undefined);
-    window.location.replace("/");
-  };
 
   return <div className="app-shell">
     {navigationOpen ? <button className="navigation-backdrop" aria-label="Close navigation" onClick={() => setNavigationOpen(false)} /> : null}
@@ -349,7 +333,7 @@ export function AppShell({ children, active, onNavigate }: PropsWithChildren<{ a
         </div>
         <button className="icon-button theme-toggle" title={`Switch to ${theme === "dark" ? "light" : "dark"} theme`} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`} onClick={() => setTheme(current => current === "dark" ? "light" : "dark")}>{theme === "dark" ? <Sun size={18}/> : <Moon size={18}/>}</button>
         <span className="user-chip" title={context.data?.user.email || undefined}>{context.data?.user.display_name || context.data?.user.email || "Developer"} · {role}</span>
-        <a className="logout-button" href="/" title="Log out" aria-label="Log out" onClick={() => signOut()}><LogOut size={18}/><span>Log out</span></a>
+        <a className="logout-button" href="/logout" title="Log out" aria-label="Log out"><LogOut size={18}/><span>Log out</span></a>
       </header>
       <main><MobileNavigation primary={primary} category={activeCategory} secondary={secondary} settings={settings} active={active} operation={operation} dataMode={dataMode} onDataMode={changeDataMode} onCategory={chooseCategory} onNavigate={navigate}/><GlobalSearch onNavigate={navigate}/>{children}</main>
     </section>
