@@ -134,6 +134,35 @@ jobs:
             --file="/backup/$(basename "$backup_file")"
           test -s "$backup_file"
 
+      - name: Prepare disposable restore policy roles
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Cluster roles are absent from a public-schema dump, but policies retain
+          # their role references. Never run this fixture against production.
+          [[ "$RESTORE_DATABASE_URL" == "postgresql://postgres:restore-test-only@127.0.0.1:5432/buyer_dash_restore" ]] || {
+            echo "Restore role fixture requires the exact disposable service URL."
+            exit 1
+          }
+          docker run --rm --interactive \
+            --network host \
+            --env RESTORE_DATABASE_URL \
+            postgres:17 \
+            psql "$RESTORE_DATABASE_URL" --no-psqlrc --set=ON_ERROR_STOP=1 <<'SQL'
+          BEGIN;
+          DO $fixture$
+          BEGIN
+            IF current_database() <> 'buyer_dash_restore' THEN
+              RAISE EXCEPTION 'Unexpected database; no roles were changed';
+            END IF;
+            CREATE ROLE anon NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
+            CREATE ROLE authenticated NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
+            CREATE ROLE doobielogic_render_runtime NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
+          END
+          $fixture$;
+          COMMIT;
+          SQL
+
       - name: Prove the backup restores
         shell: bash
         run: |
@@ -196,6 +225,7 @@ jobs:
         run: |
           set +e
           unset PGPASSWORD
+          if [[ -f "$RUNNER_TEMP/backup-passphrase" ]]; then shred --remove "$RUNNER_TEMP/backup-passphrase"; fi
           if [[ -n "${BACKUP_FILE:-}" && -f "$BACKUP_FILE" ]]; then shred --remove "$BACKUP_FILE"; fi
           if [[ -n "${ENCRYPTED_BACKUP_FILE:-}" && -f "$ENCRYPTED_BACKUP_FILE" ]]; then shred --remove "$ENCRYPTED_BACKUP_FILE"; fi
           if [[ -n "${ENCRYPTED_BACKUP_FILE:-}" && -f "$ENCRYPTED_BACKUP_FILE.sha256" ]]; then shred --remove "$ENCRYPTED_BACKUP_FILE.sha256"; fi
