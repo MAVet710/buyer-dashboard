@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { apiGet } from "../lib/api";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { apiGet, apiPost } from "../lib/api";
 
 type InvoiceRow = {
   id:string;invoice_number:string;customer:string;order_number:string;status:string;issue_date:string;due_date:string;
@@ -27,6 +27,7 @@ type AccountingSnapshot = {
 
 export function WholesaleAccountingPanel({onNavigate}:{onNavigate:(page:string)=>void}) {
   const query=useQuery({queryKey:["wholesale-accounting"],queryFn:({signal})=>apiGet<AccountingSnapshot>("/api/v1/commercial/accounting",signal),staleTime:20_000});
+  const syncPayment=useMutation({mutationFn:(paymentId:string)=>apiPost(`/api/v1/native-integrations/quickbooks/payments/${paymentId}/sync`,{}),onSuccess:()=>query.refetch()});
   if(query.isLoading)return <div className="state">Building wholesale accounting…</div>;
   if(query.isError)return <div className="warning-banner">Wholesale accounting could not be loaded: {query.error.message}</div>;
   const data=query.data!;
@@ -69,16 +70,19 @@ export function WholesaleAccountingPanel({onNavigate}:{onNavigate:(page:string)=
     </section>
 
     <section className="inventory-panel">
-      <div className="eyebrow">RECENT CASH</div><h3>Recorded payments</h3>
-      {!data.recent_payments.length?<div className="info-banner">No invoice payments have been recorded yet.</div>:<div className="table-wrap"><table><thead><tr><th>Date</th><th>Customer</th><th>Invoice</th><th>Amount</th><th>Method</th><th>Reference</th></tr></thead><tbody>{data.recent_payments.slice(0,50).map(row=><tr key={row.id}><td>{date(row.payment_date)}</td><td>{row.customer}</td><td>{row.invoice_number}</td><td><strong>{money(row.amount_usd)}</strong></td><td>{title(row.method)}</td><td>{row.reference||"—"}</td></tr>)}</tbody></table></div>}
+      <div className="eyebrow">RECENT CASH</div><h3>Recorded payments</h3><p className="section-note">DoobieLogic remains the source of truth. When QuickBooks is connected, an administrator can mirror an already-recorded payment to the exact linked QBO invoice; unchanged retries are idempotent.</p>
+      {!data.recent_payments.length?<div className="info-banner">No invoice payments have been recorded yet.</div>:<div className="table-wrap"><table><thead><tr><th>Date</th><th>Customer</th><th>Invoice</th><th>Amount</th><th>Method</th><th>Reference</th><th>QuickBooks</th></tr></thead><tbody>{data.recent_payments.slice(0,50).map(row=><tr key={row.id}><td>{date(row.payment_date)}</td><td>{row.customer}</td><td>{row.invoice_number}</td><td><strong>{money(row.amount_usd)}</strong></td><td>{title(row.method)}</td><td>{row.reference||"—"}</td><td><button className="secondary" type="button" disabled={!data.quickbooks.connected||syncPayment.isPending} onClick={()=>syncPayment.mutate(row.id)}>Sync payment</button></td></tr>)}</tbody></table></div>}
+      {syncPayment.isError?<div className="warning-banner">QuickBooks payment sync was blocked: {syncPayment.error.message}</div>:null}
+      {syncPayment.isSuccess?<div className="success-banner">QuickBooks payment synchronization completed. An unchanged retry is safe and will be skipped.</div>:null}
     </section>
 
     <section className="inventory-panel">
-      <div className="page-heading"><div><div className="eyebrow">QUICKBOOKS ONLINE</div><h3>Accounting synchronization health</h3><p className="section-note">Customer/invoice/item links and purchasing reconciliation use the existing facility-scoped accounting-link ledger. Provider writes still require the governed admin sync routes.</p></div><span className="status-pill">{data.quickbooks.connected?"CONNECTED":"NOT CONNECTED"}</span></div>
+      <div className="page-heading"><div><div className="eyebrow">QUICKBOOKS ONLINE</div><h3>Accounting synchronization health</h3><p className="section-note">Customer/invoice/item/payment links and purchasing reconciliation use the existing facility-scoped accounting-link ledger. Provider writes still require the governed admin sync routes.</p></div><span className="status-pill">{data.quickbooks.connected?"CONNECTED":"NOT CONNECTED"}</span></div>
       <div className="info-banner">{data.quickbooks.message}</div>
       <section className="metrics wholesale-metrics">
         <Metric label="Customers linked" value={data.quickbooks.linked_entities.customer??0} meta="QuickBooks Customer IDs"/>
         <Metric label="Invoices linked" value={data.quickbooks.linked_entities.invoice??0} meta="QuickBooks Invoice IDs"/>
+        <Metric label="Payments linked" value={data.quickbooks.linked_entities.payment??0} meta="QuickBooks Payment IDs"/>
         <Metric label="Items mapped" value={data.quickbooks.linked_entities.item??0} meta="Required for invoice and PO lines"/>
         <Metric label="Vendors linked" value={data.quickbooks.linked_entities.vendor??0} meta="QuickBooks Vendor IDs"/>
         <Metric label="POs linked" value={data.quickbooks.linked_entities.purchase_order??0} meta="QuickBooks Purchase Orders"/>
